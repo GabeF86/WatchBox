@@ -2060,8 +2060,11 @@ git commit -m "feat: ESP32 LCD firmware for WatchBox v0"
 
 - [ ] **Step 1: Install OpenSCAD**
 
-Run: `brew install --cask openscad`
-Expected: `openscad --version` prints a version. If `openscad` isn't on PATH, use `/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD` in the commands below.
+Download OpenSCAD from https://openscad.org/downloads.html (the macOS development snapshot works on Apple Silicon) and drag it to `/Applications` or `~/Applications`. It isn't on PATH, so use the full binary path, or alias it:
+```bash
+alias openscad="$HOME/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"   # or /Applications/...
+```
+Expected: `openscad --version` prints a version. The commands below assume the alias.
 
 - [ ] **Step 2: Create `enclosure/watchbox_v0.scad`**
 
