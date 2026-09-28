@@ -58,10 +58,15 @@ class EbayBrowseProvider:
             headers={"Authorization": f"Bearer {self._get_token()}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
         )
         if response.status_code != 200:
+            if response.status_code == 401:
+                self._token = None
             raise EbayError(f"search failed: {response.status_code} {response.text[:200]}")
         listings = []
         for item in response.json().get("itemSummaries", []):
             price = item.get("price", {})
+            converted_from = price.get("convertedFromCurrency")
+            if converted_from and converted_from != "USD":
+                continue
             if price.get("currency") == "USD" and "value" in price:
                 listings.append((item.get("title", ""), float(price["value"])))
         return listings

@@ -22,15 +22,41 @@ def test_get_price_authenticates_searches_and_summarizes():
     def handler(request):
         if str(request.url).startswith(TOKEN_URL):
             assert request.headers["Authorization"].startswith("Basic ")
+            assert "grant_type=client_credentials" in request.content.decode()
             return token_response()
         assert request.headers["Authorization"] == "Bearer tok"
         assert request.headers["X-EBAY-C-MARKETPLACE-ID"] == "EBAY_US"
         assert request.url.params["q"] == "Rolex 126610LN"
         assert request.url.params["category_ids"] == "31387"
+        assert request.url.params["filter"]
+        assert request.url.params["limit"]
         return httpx.Response(200, json=FIXTURE)
 
     result = make_provider(handler).get_price("Rolex", "126610LN")
     assert (result.price_usd, result.sample_size, result.source) == (13250.0, 4, "ebay")
+
+
+def test_search_skips_converted_currency_prices():
+    fixture = {
+        "itemSummaries": [
+            {
+                "itemId": "v1|1|0",
+                "title": "Rolex Submariner 126610LN",
+                "price": {
+                    "value": "13000.00",
+                    "currency": "USD",
+                    "convertedFromValue": "10000.00",
+                    "convertedFromCurrency": "GBP",
+                },
+            },
+        ]
+    }
+
+    def handler(request):
+        return token_response() if str(request.url).startswith(TOKEN_URL) else httpx.Response(200, json=fixture)
+
+    listings = make_provider(handler).search("Rolex", "126610LN")
+    assert listings == []
 
 
 def test_search_skips_non_usd_prices():
@@ -73,3 +99,27 @@ def test_search_error_raises():
 def test_token_error_raises():
     with pytest.raises(EbayError, match="401"):
         make_provider(lambda request: httpx.Response(401, text="bad creds")).search("Rolex", "126610LN")
+
+
+def test_search_401_clears_cached_token_and_refetches():
+    token_calls = 0
+    search_calls = 0
+
+    def handler(request):
+        nonlocal token_calls, search_calls
+        if str(request.url).startswith(TOKEN_URL):
+            token_calls += 1
+            return token_response(f"tok{token_calls}")
+        search_calls += 1
+        if search_calls == 1:
+            return httpx.Response(401, text="expired")
+        assert request.headers["Authorization"] == "Bearer tok2"
+        return httpx.Response(200, json={"itemSummaries": []})
+
+    provider = make_provider(handler)
+    with pytest.raises(EbayError, match="401"):
+        provider.search("Rolex", "126610LN")
+    assert token_calls == 1
+
+    provider.search("Rolex", "126610LN")
+    assert token_calls == 2

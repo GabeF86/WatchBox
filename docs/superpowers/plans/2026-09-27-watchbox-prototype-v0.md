@@ -712,11 +712,14 @@ def test_get_price_authenticates_searches_and_summarizes():
     def handler(request):
         if str(request.url).startswith(TOKEN_URL):
             assert request.headers["Authorization"].startswith("Basic ")
+            assert "grant_type=client_credentials" in request.content.decode()
             return token_response()
         assert request.headers["Authorization"] == "Bearer tok"
         assert request.headers["X-EBAY-C-MARKETPLACE-ID"] == "EBAY_US"
         assert request.url.params["q"] == "Rolex 126610LN"
         assert request.url.params["category_ids"] == "31387"
+        assert request.url.params["filter"]
+        assert request.url.params["limit"]
         return httpx.Response(200, json=FIXTURE)
 
     result = make_provider(handler).get_price("Rolex", "126610LN")
@@ -730,6 +733,29 @@ def test_search_skips_non_usd_prices():
     listings = make_provider(handler).search("Rolex", "126610LN")
     assert len(listings) == 7
     assert all(isinstance(price, float) for _, price in listings)
+
+
+def test_search_skips_converted_currency_prices():
+    fixture = {
+        "itemSummaries": [
+            {
+                "itemId": "v1|1|0",
+                "title": "Rolex Submariner 126610LN",
+                "price": {
+                    "value": "13000.00",
+                    "currency": "USD",
+                    "convertedFromValue": "10000.00",
+                    "convertedFromCurrency": "GBP",
+                },
+            },
+        ]
+    }
+
+    def handler(request):
+        return token_response() if str(request.url).startswith(TOKEN_URL) else httpx.Response(200, json=fixture)
+
+    listings = make_provider(handler).search("Rolex", "126610LN")
+    assert listings == []
 
 
 def test_token_is_cached_until_expiry():
@@ -763,6 +789,30 @@ def test_search_error_raises():
 def test_token_error_raises():
     with pytest.raises(EbayError, match="401"):
         make_provider(lambda request: httpx.Response(401, text="bad creds")).search("Rolex", "126610LN")
+
+
+def test_search_401_clears_cached_token_and_refetches():
+    token_calls = 0
+    search_calls = 0
+
+    def handler(request):
+        nonlocal token_calls, search_calls
+        if str(request.url).startswith(TOKEN_URL):
+            token_calls += 1
+            return token_response(f"tok{token_calls}")
+        search_calls += 1
+        if search_calls == 1:
+            return httpx.Response(401, text="expired")
+        assert request.headers["Authorization"] == "Bearer tok2"
+        return httpx.Response(200, json={"itemSummaries": []})
+
+    provider = make_provider(handler)
+    with pytest.raises(EbayError, match="401"):
+        provider.search("Rolex", "126610LN")
+    assert token_calls == 1
+
+    provider.search("Rolex", "126610LN")
+    assert token_calls == 2
 ```
 
 - [ ] **Step 3: Run to verify failure**
@@ -833,10 +883,15 @@ class EbayBrowseProvider:
             headers={"Authorization": f"Bearer {self._get_token()}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US"},
         )
         if response.status_code != 200:
+            if response.status_code == 401:
+                self._token = None
             raise EbayError(f"search failed: {response.status_code} {response.text[:200]}")
         listings = []
         for item in response.json().get("itemSummaries", []):
             price = item.get("price", {})
+            converted_from = price.get("convertedFromCurrency")
+            if converted_from and converted_from != "USD":
+                continue
             if price.get("currency") == "USD" and "value" in price:
                 listings.append((item.get("title", ""), float(price["value"])))
         return listings
@@ -845,10 +900,12 @@ class EbayBrowseProvider:
         return summarize_prices(self.search(brand, reference), reference, self.source)
 ```
 
+Note: a 401 from `search` clears the cached token (`self._token = None`) before raising, since a cached token can go stale between calls; EBAY_US already returns foreign listings converted to USD, so `convertedFromCurrency` values are skipped unless they equal `"USD"`.
+
 - [ ] **Step 5: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_ebay.py -q`
-Expected: `5 passed`
+Expected: `7 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -900,6 +957,35 @@ def test_refresh_all_stores_prices_and_survives_failures(tmp_path):
     assert refresh_all(conn, Provider()) == 1
     prices = {w.id: w.price_usd for w in db.list_watches(conn)}
     assert prices == {ok: 13400.0, broken: None, thin: None}
+
+
+def test_refresh_all_skips_watch_deleted_during_fetch(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    watch_id = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
+
+    class Provider:
+        def get_price(self, brand, reference):
+            db.delete_watch(conn, watch_id)
+            return PriceResult(13400.0, 10, "fake")
+
+    assert refresh_all(conn, Provider()) == 0
+    assert db.list_watches(conn) == []
+
+
+def test_refresh_watch_skips_storing_when_reference_changed_during_fetch(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    watch_id = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
+    watch = db.get_watch(conn, watch_id)
+
+    class Provider:
+        def get_price(self, brand, reference):
+            db.update_watch(conn, watch_id, "Rolex", "Submariner", "DIFFERENT", 1, None)
+            return PriceResult(13400.0, 10, "fake")
+
+    from watchbox.refresh import refresh_watch
+
+    assert refresh_watch(conn, Provider(), watch) is False
+    assert db.get_watch(conn, watch_id).price_usd is None
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -930,7 +1016,15 @@ def refresh_watch(conn: sqlite3.Connection, provider: PriceProvider, watch: db.W
     if result is None:
         log.warning("not enough listings for %s %s", watch.brand, watch.reference)
         return False
-    db.add_price(conn, watch.id, result)
+    current = db.get_watch(conn, watch.id)
+    if current is None or (current.brand, current.reference) != (watch.brand, watch.reference):
+        log.info("watch %s changed or was deleted during fetch; discarding result", watch.id)
+        return False
+    try:
+        db.add_price(conn, watch.id, result)
+    except sqlite3.Error:
+        log.exception("failed to store price for %s %s", watch.brand, watch.reference)
+        return False
     log.info("%s %s -> $%.0f (%d listings)", watch.brand, watch.reference, result.price_usd, result.sample_size)
     return True
 
@@ -945,10 +1039,12 @@ def needs_refresh(last_fetch_iso: str | None, refresh_hours: float, now: datetim
     return now - datetime.fromisoformat(last_fetch_iso) >= timedelta(hours=refresh_hours)
 ```
 
+Note: after `get_price` returns, the watch is re-read from the database and the result is discarded (without raising) if the watch was deleted or its brand/reference changed while the fetch was in flight; `db.add_price` is also wrapped so a storage failure is logged and reported as a failed refresh rather than propagating.
+
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_refresh.py -q`
-Expected: `2 passed`
+Expected: `4 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1390,7 +1486,7 @@ Expected: `10 passed`
 - [ ] **Step 7: Run the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: `43 passed`
+Expected: `47 passed`
 
 - [ ] **Step 8: Commit**
 
@@ -1994,5 +2090,5 @@ git commit -m "docs: README for WatchBox v0"
   - Display endpoint and all formatting rules: Tasks 4 and 7. Web UI: Task 7. Config and .env: Tasks 7 and 8.
   - Firmware behaviors (boot, 60 s fetch, 4 s cycle, offline every 3rd screen, Wi-Fi reconnect, button): Task 11. I2C scan: Task 10.
   - Enclosure: Task 12. Manual eBay check: Tasks 8 and 9. End-to-end: Task 11, Step 6.
-- **Test count:** pricing 6 + db 7 + display 7 + ebay 5 + refresh 2 + app 10 = 37.
+- **Test count:** pricing 9 + db 8 + display 9 + ebay 7 + refresh 4 + app 10 = 47.
 - **Names used across tasks:** `PriceResult`, `get_price(brand, reference)`, `listing_matches`, `filter_listings`, `summarize_prices`, `Watch`, `SlotTakenError`, `db.now_iso`, `build_screens`, `format_price`, `time_ago`, `create_app(settings, provider, run_scheduler)`, `Settings(ebay_client_id, ebay_client_secret, refresh_hours, db_path)`.
