@@ -1175,6 +1175,13 @@ def test_missing_provider_shows_banner(tmp_path):
         assert "eBay keys missing" in c.get("/").text
         assert c.post("/watches", data={"brand": "Rolex", "model": "Sub", "reference": "1", "slot": "", "nickname": ""},
                       follow_redirects=False).status_code == 303
+
+
+def test_reference_without_letters_or_digits_is_rejected(client):
+    response = add(client, reference="-")
+    assert "error=" in response.headers["location"]
+    assert response.headers["location"].startswith("/?error=")
+    assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1216,6 +1223,7 @@ def load_settings() -> Settings:
 """FastAPI app: watch management pages, the LCD display API, and the price scheduler."""
 import asyncio
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1244,6 +1252,11 @@ def parse_slot(raw: str) -> int | None:
     if not raw.isdigit() or not 1 <= int(raw) <= 8:
         raise ValueError("Slot must be between 1 and 8")
     return int(raw)
+
+
+def validate_reference(reference: str) -> None:
+    if not re.sub(r"[^a-z0-9]", "", reference.lower()):
+        raise ValueError("Reference number must contain letters or digits")
 
 
 def redirect(path: str, error: str | None = None) -> RedirectResponse:
@@ -1318,6 +1331,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr, reference: FormStr,
                      slot: FormStr = "", nickname: FormStr = ""):
         try:
+            validate_reference(reference)
             watch_id = db.add_watch(conn, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                                     nickname.strip() or None)
         except (ValueError, db.SlotTakenError) as e:
@@ -1339,6 +1353,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         if db.get_watch(conn, watch_id) is None:
             raise HTTPException(404, "Watch not found")
         try:
+            validate_reference(reference)
             db.update_watch(conn, watch_id, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                             nickname.strip() or None)
         except (ValueError, db.SlotTakenError) as e:
@@ -1481,12 +1496,12 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 - [ ] **Step 6: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_app.py -q`
-Expected: `10 passed`
+Expected: `11 passed`
 
 - [ ] **Step 7: Run the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: `47 passed`
+Expected: `48 passed`
 
 - [ ] **Step 8: Commit**
 

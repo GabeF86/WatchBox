@@ -1,0 +1,13 @@
+<form method="post" action="{{ action }}" class="watch-form">
+  <label>Brand <input name="brand" required value="{{ fw.brand if fw else '' }}" placeholder="Rolex"></label>
+  <label>Model <input name="model" required value="{{ fw.model if fw else '' }}" placeholder="Submariner Date"></label>
+  <label>Reference number <input name="reference" required value="{{ fw.reference if fw else '' }}" placeholder="126610LN"></label>
+  <label>Slot
+    <select name="slot">
+      <option value="">No slot</option>
+      {% for s in slots %}<option value="{{ s }}" {% if fw and fw.slot == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Nickname (optional) <input name="nickname" value="{{ (fw.nickname or '') if fw else '' }}" placeholder="Dad's Sub"></label>
+  <button type="submit">{{ submit_label }}</button>
+</form>

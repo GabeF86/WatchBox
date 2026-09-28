@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/">← Back</a></p>
+<h2>Edit {{ watch.nickname or watch.model }}</h2>
+{% include "_form.html" %}
+<form method="post" action="/watches/{{ watch.id }}/delete" class="row" onsubmit="return confirm('Delete this watch?')">
+  <button class="danger">Delete watch</button>
+</form>
+{% endblock %}

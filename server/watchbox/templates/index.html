@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>WatchBox</h1>
+<p class="total">{{ format_price(total) }}</p>
+<p class="muted">{{ priced_count }} priced · median eBay asking price</p>
+
+<section>
+  {% for w in watches %}
+  <article class="watch">
+    <div class="slot">{{ w.slot if w.slot is not none else "–" }}</div>
+    <div class="info">
+      <strong>{{ w.nickname or w.model }}</strong>
+      <span class="muted">{{ w.brand }} {{ w.reference }}</span>
+    </div>
+    <div class="price">
+      {% if w.price_usd is not none %}
+        {{ format_price(w.price_usd) }}<small>{{ w.sample_size }} listings · {{ time_ago(w.fetched_at) }}</small>
+      {% else %}
+        <span class="muted">no price yet</span>
+      {% endif %}
+    </div>
+    <a href="/watches/{{ w.id }}/edit">Edit</a>
+  </article>
+  {% else %}
+  <p class="muted">No watches yet. Add your first one below.</p>
+  {% endfor %}
+</section>
+
+<form method="post" action="/refresh" class="row"><button class="secondary">Refresh prices now</button></form>
+
+<h2>Add a watch</h2>
+{% include "_form.html" %}
+{% endblock %}
