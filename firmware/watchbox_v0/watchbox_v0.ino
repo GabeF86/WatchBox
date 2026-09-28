@@ -10,6 +10,9 @@
 const unsigned long FETCH_INTERVAL_MS = 60000;
 const unsigned long SCREEN_INTERVAL_MS = 4000;
 const unsigned long DEBOUNCE_MS = 300;
+const unsigned long WIFI_CONNECT_TIMEOUT_MS = 60000;
+const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
+const unsigned long WIFI_RESTART_TIMEOUT_MS = 300000;
 const int BUTTON_PIN = 4;  // optional push button to GND: next screen + refetch
 const int MAX_SCREENS = 16;
 
@@ -28,6 +31,9 @@ bool haveFetched = false;
 unsigned long lastFetchAt = 0;
 unsigned long lastScreenAt = 0;
 unsigned long lastButtonAt = 0;
+int lastButtonLevel = HIGH;
+unsigned long disconnectedAt = 0;
+unsigned long lastReconnectAttempt = 0;
 
 // Pads to 16 chars instead of lcd.clear() so the screen doesn't flicker.
 void show(const char* line1, const char* line2) {
@@ -42,8 +48,10 @@ void show(const char* line1, const char* line2) {
 
 bool fetchDisplay() {
   HTTPClient http;
-  http.setTimeout(5000);
   if (!http.begin(String(SERVER_URL) + "/api/display")) return false;
+  http.useHTTP10(true);
+  http.setConnectTimeout(2000);
+  http.setTimeout(3000);
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     Serial.printf("GET /api/display failed: %d\n", code);
@@ -55,6 +63,10 @@ bool fetchDisplay() {
   http.end();
   if (err) {
     Serial.printf("JSON error: %s\n", err.c_str());
+    return false;
+  }
+  if (!doc["screens"].is<JsonArray>()) {
+    Serial.println("JSON error: \"screens\" is not an array");
     return false;
   }
   int count = 0;
@@ -94,7 +106,15 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) delay(250);
+  unsigned long connectStart = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - connectStart >= WIFI_CONNECT_TIMEOUT_MS) {
+      Serial.printf("WiFi connect timed out, status=%d, restarting\n", WiFi.status());
+      ESP.restart();
+    }
+    Serial.printf("WiFi status: %d\n", WiFi.status());
+    delay(250);
+  }
   Serial.print("WiFi connected, IP ");
   Serial.println(WiFi.localIP());
   show("WatchBox v0", "Loading...");
@@ -102,14 +122,30 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
-  bool pressed = digitalRead(BUTTON_PIN) == LOW && now - lastButtonAt > DEBOUNCE_MS;
+  int buttonLevel = digitalRead(BUTTON_PIN);
+  bool pressed = buttonLevel == LOW && lastButtonLevel == HIGH && now - lastButtonAt > DEBOUNCE_MS;
   if (pressed) lastButtonAt = now;
+  lastButtonLevel = buttonLevel;
 
   if (WiFi.status() != WL_CONNECTED) {
+    if (disconnectedAt == 0) {
+      disconnectedAt = now;
+      lastReconnectAttempt = now;
+    }
     show("WatchBox v0", "WiFi...");
+    if (now - disconnectedAt >= WIFI_RESTART_TIMEOUT_MS) {
+      Serial.println("WiFi disconnected too long, restarting");
+      ESP.restart();
+    }
+    if (now - lastReconnectAttempt >= WIFI_RECONNECT_INTERVAL_MS) {
+      lastReconnectAttempt = now;
+      Serial.println("WiFi disconnected, attempting reconnect");
+      WiFi.reconnect();
+    }
     delay(500);
     return;
   }
+  disconnectedAt = 0;
 
   if (!haveFetched || pressed || now - lastFetchAt >= FETCH_INTERVAL_MS) {
     lastFetchOk = fetchDisplay();
