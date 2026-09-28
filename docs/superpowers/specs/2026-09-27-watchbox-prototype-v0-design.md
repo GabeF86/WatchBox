@@ -49,11 +49,13 @@ The box asks the server for ready-to-show data, and the server owns all logic an
 - Collection total at the top.
 
 **Price provider layer**
-- Interface: `PriceProvider.get_price(watch) -> PriceResult | None`, where `PriceResult` holds `price_usd`, `sample_size` and `source`.
+- Interface: `PriceProvider.get_price(brand, reference) -> PriceResult | None`, where `PriceResult` holds `price_usd`, `sample_size` and `source`.
 - `EbayBrowseProvider`:
   - Authenticates with an OAuth client-credentials token (scope `https://api.ebay.com/oauth/api_scope`), cached until it expires.
   - Calls `GET /buy/browse/v1/item_summary/search` with `q="<brand> <reference>"`, `category_ids=31387` (Wristwatches), `filter=buyingOptions:{FIXED_PRICE},price:[500..],priceCurrency:USD`, `limit=100`.
-  - Drops titles containing junk keywords (`box only`, `papers only`, `strap`, `bracelet only`, `band`, `parts`, `repair`, `dial only`, `bezel`, `insert`, `link`, `homage`, `replica`, `for parts`).
+  - Keeps only listings whose title contains the reference number, ignoring case, spaces and punctuation (so `126610 LN` matches `126610LN`).
+  - Drops titles containing junk phrases (`box only`, `papers only`, `empty box`, `strap only`, `bracelet only`, `band only`, `links only`, `dial only`, `bezel only`, `bezel insert`, `crown only`, `case back`, `for parts`, `parts only`, `repair`, `homage`, `replica`, `manual`, `booklet`). These are phrases, not single words, so normal titles like "Ceramic Bezel" or "Oyster bracelet" are kept.
+  - Editing a watch's brand or reference clears its price history, so a stale price for the old reference is never shown.
   - Removes outliers outside [0.5 × median, 2 × median] of the remaining prices, then returns the median of what's left.
   - Returns `None` when fewer than 3 listings survive, and the UI shows "not enough data".
 - Only `USD` prices are used, and the value is the median **asking** price, labeled as such in the UI.
@@ -98,7 +100,9 @@ The box asks the server for ready-to-show data, and the server owns all logic an
 
 ### 3. Enclosure (`enclosure/`): OpenSCAD, exported to STL
 
-- Two parts: `front_shell` (LCD window, 4 M3 screw posts for the LCD, lid screw bosses) and `back_plate` (ESP32 standoffs, USB cable cutout, vent slots, optional button hole).
+- Two parts:
+  - `front_shell`: front face with the LCD window, 4 LCD screw posts, 4 corner screw bosses, a USB notch open at the back edge, and an optional button hole in the top wall. It prints front-face-down.
+  - `back_plate`: screw holes, vent slots, and a raised center rail (18 mm) that holds the ESP32 with foam tape. The rail sits between the two pin rows, so the Dupont jumpers stay attached underneath. It prints flat.
 - Parametric: every part dimension is a variable at the top of `watchbox_v0.scad`. Defaults:
   - LCD1602 PCB 80 × 36 mm, mounting holes 75 × 31 mm (M3), visible area 64.5 × 16 mm, module depth with I2C backpack about 20 mm.
   - ESP32 board 55 × 28 mm (38-pin devkit). **Measure your board and update these values before printing.**
