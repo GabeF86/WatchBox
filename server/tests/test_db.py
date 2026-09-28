@@ -48,6 +48,13 @@ def test_update_clears_prices_when_reference_changes(conn):
     assert db.get_watch(conn, wid).price_usd is None
 
 
+def test_update_clears_prices_when_only_brand_changes(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
+    db.add_price(conn, wid, PriceResult(13000.0, 20, "ebay"))
+    db.update_watch(conn, wid, "Tudor", "Submariner", "126610LN", 1, None)
+    assert db.get_watch(conn, wid).price_usd is None
+
+
 def test_delete_removes_watch_and_prices(conn):
     wid = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
     db.add_price(conn, wid, PriceResult(13000.0, 20, "ebay"))

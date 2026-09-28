@@ -22,7 +22,10 @@ def time_ago(iso: str | None, now: datetime | None = None) -> str:
     if not iso:
         return "never"
     now = now or datetime.now(timezone.utc)
-    seconds = (now - datetime.fromisoformat(iso)).total_seconds()
+    then = datetime.fromisoformat(iso)
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    seconds = (now - then).total_seconds()
     if seconds < 60:
         return "just now"
     if seconds < 3600:

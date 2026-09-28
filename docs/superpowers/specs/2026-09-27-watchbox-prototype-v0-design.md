@@ -54,7 +54,7 @@ The box asks the server for ready-to-show data, and the server owns all logic an
   - Authenticates with an OAuth client-credentials token (scope `https://api.ebay.com/oauth/api_scope`), cached until it expires.
   - Calls `GET /buy/browse/v1/item_summary/search` with `q="<brand> <reference>"`, `category_ids=31387` (Wristwatches), `filter=buyingOptions:{FIXED_PRICE},price:[500..],priceCurrency:USD`, `limit=100`.
   - Keeps only listings whose title contains the reference number, ignoring case, spaces and punctuation (so `126610 LN` matches `126610LN`).
-  - Drops titles containing junk phrases (`box only`, `papers only`, `empty box`, `strap only`, `bracelet only`, `band only`, `links only`, `dial only`, `bezel only`, `bezel insert`, `crown only`, `case back`, `for parts`, `parts only`, `repair`, `homage`, `replica`, `manual`, `booklet`). These are phrases, not single words, so normal titles like "Ceramic Bezel" or "Oyster bracelet" are kept.
+  - Drops titles containing junk phrases (`box only`, `papers only`, `empty box`, `strap only`, `bracelet only`, `band only`, `links only`, `dial only`, `bezel only`, `bezel insert`, `crown only`, `case back`, `for parts`, `parts only`, `for repair`, `needs repair`, `repair only`, `homage`, `replica`, `instruction manual`, `manual only`, `booklet`). These are phrases, not single words, so normal titles like "Ceramic Bezel", "Oyster bracelet", or "Manual Wind" are kept.
   - Editing a watch's brand or reference clears its price history, so a stale price for the old reference is never shown.
   - Removes outliers outside [0.5 × median, 2 × median] of the remaining prices, then returns the median of what's left.
   - Returns `None` when fewer than 3 listings survive, and the UI shows "not enough data".

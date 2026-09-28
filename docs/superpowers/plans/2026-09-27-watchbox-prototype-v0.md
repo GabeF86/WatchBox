@@ -161,6 +161,24 @@ def test_summarize_returns_median_after_outlier_removal():
 def test_summarize_needs_at_least_three_listings():
     listings = [("Rolex 126610LN", 13000.0), ("Rolex 126610LN", 13500.0)]
     assert summarize_prices(listings, "126610LN", "ebay") is None
+
+
+def test_summarize_returns_none_when_outlier_removal_leaves_too_few():
+    # 3 listings pass the reference/junk filter, but the 0.5x-2x band around
+    # the median of [100, 100, 100000] (100) only keeps the two 100s.
+    listings = [("Rolex 126610LN #1", 100.0), ("Rolex 126610LN #2", 100.0), ("Rolex 126610LN #3", 100000.0)]
+    assert summarize_prices(listings, "126610LN", "ebay") is None
+
+
+def test_listing_matches_returns_false_for_empty_reference():
+    assert listing_matches("Rolex Submariner", "") is False
+    assert listing_matches("Rolex Submariner", "-") is False
+
+
+def test_is_junk_manual_and_repair_refinements():
+    assert not is_junk("Omega Speedmaster Professional Manual Wind 310.30.42.50.01.001")
+    assert is_junk("Rolex instruction manual 126610LN")
+    assert is_junk("Rolex 126610LN needs repair")
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -182,7 +200,8 @@ MIN_SAMPLES = 3
 JUNK_PHRASES = (
     "box only", "papers only", "empty box", "strap only", "bracelet only", "band only",
     "links only", "dial only", "bezel only", "bezel insert", "crown only", "case back",
-    "for parts", "parts only", "repair", "homage", "replica", "manual", "booklet",
+    "for parts", "parts only", "for repair", "needs repair", "repair only", "homage", "replica",
+    "instruction manual", "manual only", "booklet",
 )
 
 
@@ -207,7 +226,10 @@ def is_junk(title: str) -> bool:
 
 
 def listing_matches(title: str, reference: str) -> bool:
-    return _norm(reference) in _norm(title) and not is_junk(title)
+    norm_reference = _norm(reference)
+    if not norm_reference:
+        return False
+    return norm_reference in _norm(title) and not is_junk(title)
 
 
 def filter_listings(listings: list[tuple[str, float]], reference: str) -> list[float]:
@@ -228,7 +250,7 @@ def summarize_prices(listings: list[tuple[str, float]], reference: str, source: 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_pricing.py -q`
-Expected: `6 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -296,6 +318,13 @@ def test_update_clears_prices_when_reference_changes(conn):
     wid = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
     db.add_price(conn, wid, PriceResult(13000.0, 20, "ebay"))
     db.update_watch(conn, wid, "Rolex", "GMT-Master II", "126710BLRO", 1, None)
+    assert db.get_watch(conn, wid).price_usd is None
+
+
+def test_update_clears_prices_when_only_brand_changes(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner", "126610LN", 1, None)
+    db.add_price(conn, wid, PriceResult(13000.0, 20, "ebay"))
+    db.update_watch(conn, wid, "Tudor", "Submariner", "126610LN", 1, None)
     assert db.get_watch(conn, wid).price_usd is None
 
 
@@ -390,14 +419,15 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     return conn
 
 
-def _write(conn: sqlite3.Connection, sql: str, params: tuple, slot: int | None) -> sqlite3.Cursor:
+def _write(conn: sqlite3.Connection, sql: str, params: tuple, slot: int | None, commit: bool = True) -> sqlite3.Cursor:
     try:
         cur = conn.execute(sql, params)
     except sqlite3.IntegrityError as e:
         if "UNIQUE" in str(e):
             raise SlotTakenError(slot) from e
         raise
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur
 
 
@@ -428,10 +458,11 @@ def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, sl
         "UPDATE watches SET brand = ?, model = ?, reference = ?, slot = ?, nickname = ? WHERE id = ?",
         (brand, model, reference, slot, nickname, watch_id),
         slot,
+        commit=False,
     )
     if old and (old["brand"], old["reference"]) != (brand, reference):
         conn.execute("DELETE FROM prices WHERE watch_id = ?", (watch_id,))
-        conn.commit()
+    conn.commit()
 
 
 def delete_watch(conn: sqlite3.Connection, watch_id: int) -> None:
@@ -454,7 +485,7 @@ def latest_fetch_time(conn: sqlite3.Connection) -> str | None:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_db.py -q`
-Expected: `7 passed`
+Expected: `8 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -492,11 +523,18 @@ def test_format_price_whole_dollars_with_commas():
 
 def test_format_price_switches_to_millions_when_too_long():
     assert format_price(1_234_567) == "$1.2M"
+    assert format_price(999_999.6) == "$1.0M"
 
 
 def test_fit_truncates_to_16_ascii_chars():
     assert fit("1 Royal Oak Offshore Chronograph") == "1 Royal Oak Offs"
     assert fit("Café Racer") == "Caf Racer"
+
+
+def test_fit_leaves_exactly_16_chars_unchanged():
+    text = "1234567890123456"
+    assert len(text) == 16
+    assert fit(text) == text
 
 
 def test_empty_collection():
@@ -533,6 +571,11 @@ def test_time_ago():
     assert time_ago("2026-09-27T11:15:00+00:00", now) == "45 min ago"
     assert time_ago("2026-09-27T06:00:00+00:00", now) == "6 h ago"
     assert time_ago("2026-09-24T12:00:00+00:00", now) == "3 d ago"
+
+
+def test_time_ago_treats_naive_timestamp_as_utc():
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
+    assert time_ago("2026-09-27T11:15:00", now) == "45 min ago"
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -567,7 +610,10 @@ def time_ago(iso: str | None, now: datetime | None = None) -> str:
     if not iso:
         return "never"
     now = now or datetime.now(timezone.utc)
-    seconds = (now - datetime.fromisoformat(iso)).total_seconds()
+    then = datetime.fromisoformat(iso)
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    seconds = (now - then).total_seconds()
     if seconds < 60:
         return "just now"
     if seconds < 3600:
@@ -601,7 +647,7 @@ def build_screens(watches: list[Watch]) -> list[dict[str, str]]:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_display.py -q`
-Expected: `7 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1344,7 +1390,7 @@ Expected: `10 passed`
 - [ ] **Step 7: Run the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: `37 passed`
+Expected: `43 passed`
 
 - [ ] **Step 8: Commit**
 

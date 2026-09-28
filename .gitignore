@@ -4,3 +4,4 @@ firmware/**/config.h
 __pycache__/
 *.db
 .venv/
+.pytest_cache/

@@ -15,11 +15,18 @@ def test_format_price_whole_dollars_with_commas():
 
 def test_format_price_switches_to_millions_when_too_long():
     assert format_price(1_234_567) == "$1.2M"
+    assert format_price(999_999.6) == "$1.0M"
 
 
 def test_fit_truncates_to_16_ascii_chars():
     assert fit("1 Royal Oak Offshore Chronograph") == "1 Royal Oak Offs"
     assert fit("Café Racer") == "Caf Racer"
+
+
+def test_fit_leaves_exactly_16_chars_unchanged():
+    text = "1234567890123456"
+    assert len(text) == 16
+    assert fit(text) == text
 
 
 def test_empty_collection():
@@ -56,3 +63,8 @@ def test_time_ago():
     assert time_ago("2026-09-27T11:15:00+00:00", now) == "45 min ago"
     assert time_ago("2026-09-27T06:00:00+00:00", now) == "6 h ago"
     assert time_ago("2026-09-24T12:00:00+00:00", now) == "3 d ago"
+
+
+def test_time_ago_treats_naive_timestamp_as_utc():
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
+    assert time_ago("2026-09-27T11:15:00", now) == "45 min ago"

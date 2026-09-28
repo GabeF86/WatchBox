@@ -69,14 +69,15 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     return conn
 
 
-def _write(conn: sqlite3.Connection, sql: str, params: tuple, slot: int | None) -> sqlite3.Cursor:
+def _write(conn: sqlite3.Connection, sql: str, params: tuple, slot: int | None, commit: bool = True) -> sqlite3.Cursor:
     try:
         cur = conn.execute(sql, params)
     except sqlite3.IntegrityError as e:
         if "UNIQUE" in str(e):
             raise SlotTakenError(slot) from e
         raise
-    conn.commit()
+    if commit:
+        conn.commit()
     return cur
 
 
@@ -107,10 +108,11 @@ def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, sl
         "UPDATE watches SET brand = ?, model = ?, reference = ?, slot = ?, nickname = ? WHERE id = ?",
         (brand, model, reference, slot, nickname, watch_id),
         slot,
+        commit=False,
     )
     if old and (old["brand"], old["reference"]) != (brand, reference):
         conn.execute("DELETE FROM prices WHERE watch_id = ?", (watch_id,))
-        conn.commit()
+    conn.commit()
 
 
 def delete_watch(conn: sqlite3.Connection, watch_id: int) -> None:

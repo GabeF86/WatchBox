@@ -9,7 +9,8 @@ MIN_SAMPLES = 3
 JUNK_PHRASES = (
     "box only", "papers only", "empty box", "strap only", "bracelet only", "band only",
     "links only", "dial only", "bezel only", "bezel insert", "crown only", "case back",
-    "for parts", "parts only", "repair", "homage", "replica", "manual", "booklet",
+    "for parts", "parts only", "for repair", "needs repair", "repair only", "homage", "replica",
+    "instruction manual", "manual only", "booklet",
 )
 
 
@@ -34,7 +35,10 @@ def is_junk(title: str) -> bool:
 
 
 def listing_matches(title: str, reference: str) -> bool:
-    return _norm(reference) in _norm(title) and not is_junk(title)
+    norm_reference = _norm(reference)
+    if not norm_reference:
+        return False
+    return norm_reference in _norm(title) and not is_junk(title)
 
 
 def filter_listings(listings: list[tuple[str, float]], reference: str) -> list[float]:
