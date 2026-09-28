@@ -2081,13 +2081,14 @@ lcd_hole_sp    = [75, 31];         // LCD mounting-hole spacing (centre to centr
 lcd_frame      = [71.3, 24.3, 7];  // display frame w x h, and how far it stands off the PCB front
 lcd_back_depth = 14;               // PCB back to top of the I2C backpack (incl. pins)
 esp_board      = [55, 28];         // ESP32 board length x width (measure yours!)
-esp_raise      = 18;               // rail height: room for header pins + Dupont connectors
+esp_raise      = 22;               // rail height: room for header plastic + Dupont housings + wire bend
 esp_top        = 4;                // tallest part on top of the ESP32 (module / USB socket)
 usb_cut        = [13, 9];          // cable plug clearance (width x height)
 screw_pilot    = 2.6;              // pilot hole for M3 self-tapping (2.2 for M2.5)
 screw_clear    = 3.4;              // clearance hole in the back plate
 wall           = 2;
 clr            = 0.3;
+window_clr     = 0.5;              // extra room around the display frame
 gap            = 4;                // air gap between LCD stack and ESP32 stack
 button_hole    = true;             // hole in the top wall for the optional GPIO4 button
 button_d       = 7;
@@ -2129,8 +2130,8 @@ module front_shell() {
       for (p = boss_pos) translate([p.x, p.y, wall]) cylinder(d = boss_d, h = in_d);
     }
     // display window (the LCD frame sits in it, flush with the face)
-    translate([cx - lcd_frame.x / 2 - clr, cy - lcd_frame.y / 2 - clr, -1])
-      cube([lcd_frame.x + 2 * clr, lcd_frame.y + 2 * clr, wall + 2]);
+    translate([cx - lcd_frame.x / 2 - window_clr, cy - lcd_frame.y / 2 - window_clr, -1])
+      cube([lcd_frame.x + 2 * window_clr, lcd_frame.y + 2 * window_clr, wall + 2]);
     // LCD post pilot holes (blind: they don't pierce the front face)
     for (p = lcd_holes) translate([p.x, p.y, wall + 0.6]) cylinder(d = screw_pilot, h = lcd_post_h);
     // back-plate screw pilots
@@ -2140,7 +2141,7 @@ module front_shell() {
       cube([wall + 2, usb_cut.x, out.z]);
     // optional button hole in the top wall, behind the LCD stack
     if (button_hole)
-      translate([cx - 25, out.y - wall - 1, wall + lcd_stack + 6])
+      translate([cx - 25, out.y - wall - 1, wall + lcd_stack + 8])
         rotate([-90, 0, 0]) cylinder(d = button_d, h = wall + 2);
   }
 }
@@ -2155,7 +2156,7 @@ module back_plate() {
       translate([esp_x0 - 2, cy - 7, wall]) cube([2, 14, esp_raise + 3]);
     }
     for (p = boss_pos) translate([p.x, p.y, -1]) cylinder(d = screw_clear, h = wall + 2);
-    // vent slots above the board
+    // vent slots beside the board
     for (i = [0 : 4]) translate([cx - 30 + i * 13, cy + esp_board.y / 2 + 3, -1]) cube([6, 8, wall + 2]);
   }
 }
@@ -2180,7 +2181,7 @@ openscad -D 'part="front"' -o enclosure/watchbox_v0_front.stl enclosure/watchbox
 openscad -D 'part="back"'  -o enclosure/watchbox_v0_back.stl  enclosure/watchbox_v0.scad
 openscad -D 'part="assembly"' --imgsize=1200,900 --viewall --autocenter -o enclosure/preview.png enclosure/watchbox_v0.scad
 ```
-Expected: both STLs are written with no `WARNING`/`ERROR` lines, and the console echoes `Outer size: 98.6 x 54.6 x 52.2 mm` (with default parameters). Open `enclosure/preview.png` and check the window is centred, the USB notch is on the right, and the rail is inside the box.
+Expected: both STLs are written with no `WARNING`/`ERROR` lines, and the console echoes `Outer size: 98.6 x 54.6 x 56.2 mm` (with default parameters). Open `enclosure/preview.png` and check the window is centred, the USB notch is on the right, and the rail is inside the box.
 
 - [ ] **Step 4: Commit**
 
@@ -2209,6 +2210,18 @@ git commit -m "feat: parametric enclosure for WatchBox v0"
 A prototype watch case that shows your collection's market value on a 16×2 LCD.
 A local web app stores your watches and fetches eBay prices, and an ESP32 displays them.
 
+## Hardware you need
+- ESP32 devkit, I2C LCD1602 (PCF8574 backpack), USB cable and charger
+- 4 female-female Dupont jumpers
+- LCD: 4× M3 (or M2.5) self-tapping screws, **6 mm max** (longer ones can crack the front face)
+- Back plate: 4× M3 × 10–12 mm self-tapping screws
+- Double-sided foam tape for the ESP32
+
+## Get eBay keys
+1. Sign up at https://developer.ebay.com and create a **Production** keyset.
+2. When asked about Marketplace Account Deletion notifications, choose the opt-out/exempt option (this app stores no eBay user data).
+3. Copy **App ID** → `EBAY_CLIENT_ID` and **Cert ID** → `EBAY_CLIENT_SECRET` in `server/.env`.
+
 ## Run the app
 ```bash
 cd server
@@ -2233,7 +2246,7 @@ arduino-cli core update-index && arduino-cli core install esp32:esp32
 arduino-cli lib install "LiquidCrystal I2C" ArduinoJson
 ```
 
-Wiring: LCD GND→GND, VCC→5V, SDA→GPIO21, SCL→GPIO22. Optional button: GPIO4→GND.
+Wiring: LCD GND→GND, VCC→5V (labelled VIN on some boards), SDA→GPIO21, SCL→GPIO22. Optional button: GPIO4→GND.
 ```bash
 cp firmware/watchbox_v0/config.example.h firmware/watchbox_v0/config.h   # edit Wi-Fi (2.4 GHz), SERVER_URL, LCD_ADDR
 arduino-cli board list                                                    # find the port, e.g. /dev/cu.usbserial-0001
@@ -2254,7 +2267,9 @@ alias openscad="$HOME/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"   # or 
 openscad -D 'part="front"' -o enclosure/watchbox_v0_front.stl enclosure/watchbox_v0.scad
 openscad -D 'part="back"'  -o enclosure/watchbox_v0_back.stl  enclosure/watchbox_v0.scad
 ```
-Front shell face-down, back plate flat with the rail up, no supports.
+Front shell face-down, back plate flat with the rail up, no supports. In Bambu Studio, turn on elephant-foot compensation: the front face is the first layer and the window must stay full size.
+
+Before mounting the LCD: the common PCF8574 backpack's 4 header pins stick out sideways past the LCD's short edge and won't fit in the box. Gently bend them 90° toward the back (or solder the wires on directly).
 Stick the ESP32 to the rail with its USB end toward the right wall (the USB notch). When closing the box, the tall stop at the rail's other end must point away from the notch.
 
 ## Notes

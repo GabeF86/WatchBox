@@ -3,6 +3,18 @@
 A prototype watch case that shows your collection's market value on a 16×2 LCD.
 A local web app stores your watches and fetches eBay prices, and an ESP32 displays them.
 
+## Hardware you need
+- ESP32 devkit, I2C LCD1602 (PCF8574 backpack), USB cable and charger
+- 4 female-female Dupont jumpers
+- LCD: 4× M3 (or M2.5) self-tapping screws, **6 mm max** (longer ones can crack the front face)
+- Back plate: 4× M3 × 10–12 mm self-tapping screws
+- Double-sided foam tape for the ESP32
+
+## Get eBay keys
+1. Sign up at https://developer.ebay.com and create a **Production** keyset.
+2. When asked about Marketplace Account Deletion notifications, choose the opt-out/exempt option (this app stores no eBay user data).
+3. Copy **App ID** → `EBAY_CLIENT_ID` and **Cert ID** → `EBAY_CLIENT_SECRET` in `server/.env`.
+
 ## Run the app
 ```bash
 cd server
@@ -27,7 +39,7 @@ arduino-cli core update-index && arduino-cli core install esp32:esp32
 arduino-cli lib install "LiquidCrystal I2C" ArduinoJson
 ```
 
-Wiring: LCD GND→GND, VCC→5V, SDA→GPIO21, SCL→GPIO22. Optional button: GPIO4→GND.
+Wiring: LCD GND→GND, VCC→5V (labelled VIN on some boards), SDA→GPIO21, SCL→GPIO22. Optional button: GPIO4→GND.
 ```bash
 cp firmware/watchbox_v0/config.example.h firmware/watchbox_v0/config.h   # edit Wi-Fi (2.4 GHz), SERVER_URL, LCD_ADDR
 arduino-cli board list                                                    # find the port, e.g. /dev/cu.usbserial-0001
@@ -48,7 +60,9 @@ alias openscad="$HOME/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD"   # or 
 openscad -D 'part="front"' -o enclosure/watchbox_v0_front.stl enclosure/watchbox_v0.scad
 openscad -D 'part="back"'  -o enclosure/watchbox_v0_back.stl  enclosure/watchbox_v0.scad
 ```
-Front shell face-down, back plate flat with the rail up, no supports.
+Front shell face-down, back plate flat with the rail up, no supports. In Bambu Studio, turn on elephant-foot compensation: the front face is the first layer and the window must stay full size.
+
+Before mounting the LCD: the common PCF8574 backpack's 4 header pins stick out sideways past the LCD's short edge and won't fit in the box. Gently bend them 90° toward the back (or solder the wires on directly).
 Stick the ESP32 to the rail with its USB end toward the right wall (the USB notch). When closing the box, the tall stop at the rail's other end must point away from the notch.
 
 ## Notes

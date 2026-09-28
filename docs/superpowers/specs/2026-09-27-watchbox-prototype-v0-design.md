@@ -57,7 +57,7 @@ The box asks the server for ready-to-show data, and the server owns all logic an
   - Drops titles containing junk phrases (`box only`, `papers only`, `empty box`, `strap only`, `bracelet only`, `band only`, `links only`, `dial only`, `bezel only`, `bezel insert`, `crown only`, `case back`, `for parts`, `parts only`, `for repair`, `needs repair`, `repair only`, `homage`, `replica`, `instruction manual`, `manual only`, `booklet`). These are phrases, not single words, so normal titles like "Ceramic Bezel", "Oyster bracelet", or "Manual Wind" are kept.
   - Editing a watch's brand or reference clears its price history, so a stale price for the old reference is never shown.
   - Removes outliers outside [0.5 × median, 2 × median] of the remaining prices, then returns the median of what's left.
-  - Returns `None` when fewer than 3 listings survive, and the UI shows "not enough data".
+  - Returns `None` when fewer than 3 listings survive, and the UI shows "no price yet" (the server log records why).
 - Only `USD` prices are used, and the value is the median **asking** price, labeled as such in the UI.
 
 **Scheduler**
@@ -115,7 +115,7 @@ The box asks the server for ready-to-show data, and the server owns all logic an
 | Failure | Behavior |
 |---|---|
 | eBay auth or API error | Log it, keep the last price, retry next cycle. UI shows "fetched X ago". |
-| Fewer than 3 usable listings | No new price stored. UI shows "not enough data", LCD shows `no price yet`. |
+| Fewer than 3 usable listings | No new price stored. UI shows "no price yet" (same as never fetched; the server log records which), LCD shows `no price yet`. |
 | Mac or server unreachable | LCD keeps the last data and shows a `Server offline` screen now and then. |
 | Wi-Fi drops | Firmware reconnects and shows `WiFi...` while down. |
 | Empty collection | `No watches yet` / `Add on the app`. |

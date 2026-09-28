@@ -10,13 +10,14 @@ lcd_hole_sp    = [75, 31];         // LCD mounting-hole spacing (centre to centr
 lcd_frame      = [71.3, 24.3, 7];  // display frame w x h, and how far it stands off the PCB front
 lcd_back_depth = 14;               // PCB back to top of the I2C backpack (incl. pins)
 esp_board      = [55, 28];         // ESP32 board length x width (measure yours!)
-esp_raise      = 18;               // rail height: room for header pins + Dupont connectors
+esp_raise      = 22;               // rail height: room for header plastic + Dupont housings + wire bend
 esp_top        = 4;                // tallest part on top of the ESP32 (module / USB socket)
 usb_cut        = [13, 9];          // cable plug clearance (width x height)
 screw_pilot    = 2.6;              // pilot hole for M3 self-tapping (2.2 for M2.5)
 screw_clear    = 3.4;              // clearance hole in the back plate
 wall           = 2;
 clr            = 0.3;
+window_clr     = 0.5;              // extra room around the display frame
 gap            = 4;                // air gap between LCD stack and ESP32 stack
 button_hole    = true;             // hole in the top wall for the optional GPIO4 button
 button_d       = 7;
@@ -58,8 +59,8 @@ module front_shell() {
       for (p = boss_pos) translate([p.x, p.y, wall]) cylinder(d = boss_d, h = in_d);
     }
     // display window (the LCD frame sits in it, flush with the face)
-    translate([cx - lcd_frame.x / 2 - clr, cy - lcd_frame.y / 2 - clr, -1])
-      cube([lcd_frame.x + 2 * clr, lcd_frame.y + 2 * clr, wall + 2]);
+    translate([cx - lcd_frame.x / 2 - window_clr, cy - lcd_frame.y / 2 - window_clr, -1])
+      cube([lcd_frame.x + 2 * window_clr, lcd_frame.y + 2 * window_clr, wall + 2]);
     // LCD post pilot holes (blind: they don't pierce the front face)
     for (p = lcd_holes) translate([p.x, p.y, wall + 0.6]) cylinder(d = screw_pilot, h = lcd_post_h);
     // back-plate screw pilots
@@ -69,7 +70,7 @@ module front_shell() {
       cube([wall + 2, usb_cut.x, out.z]);
     // optional button hole in the top wall, behind the LCD stack
     if (button_hole)
-      translate([cx - 25, out.y - wall - 1, wall + lcd_stack + 6])
+      translate([cx - 25, out.y - wall - 1, wall + lcd_stack + 8])
         rotate([-90, 0, 0]) cylinder(d = button_d, h = wall + 2);
   }
 }
@@ -84,7 +85,7 @@ module back_plate() {
       translate([esp_x0 - 2, cy - 7, wall]) cube([2, 14, esp_raise + 3]);
     }
     for (p = boss_pos) translate([p.x, p.y, -1]) cylinder(d = screw_clear, h = wall + 2);
-    // vent slots above the board
+    // vent slots beside the board
     for (i = [0 : 4]) translate([cx - 30 + i * 13, cy + esp_board.y / 2 + 3, -1]) cube([6, 8, wall + 2]);
   }
 }
