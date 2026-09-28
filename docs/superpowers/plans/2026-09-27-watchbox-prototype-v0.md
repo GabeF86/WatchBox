@@ -1755,16 +1755,25 @@ macOS may ask "Allow Python to accept incoming network connections?" Click **All
 
 - [ ] **Step 1: Install arduino-cli and the ESP32 core**
 
-Run:
+If Homebrew is available:
 ```bash
 brew install arduino-cli
+```
+If Homebrew is not installed, download arduino-cli directly instead of installing Homebrew:
+```bash
+mkdir -p ~/.local/bin && curl -fsSL https://downloads.arduino.cc/arduino-cli/arduino-cli_latest_macOS_ARM64.tar.gz | tar -xz -C ~/.local/bin arduino-cli
+```
+This installs the binary at `~/.local/bin/arduino-cli`. Either add `~/.local/bin` to your `PATH`, or call it by full path — the commands below assume you've done one of those (examples in this doc use the full path `~/.local/bin/arduino-cli` where it matters).
+
+Then run:
+```bash
 arduino-cli config init --overwrite
 arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
 arduino-cli core update-index
 arduino-cli core install esp32:esp32
 arduino-cli lib install "LiquidCrystal I2C" ArduinoJson
 ```
-Expected: ends with `Platform esp32:esp32@3.x.x installed` and both libraries installed. If `brew` is missing, install Homebrew from https://brew.sh first.
+Expected: ends with `Platform esp32:esp32@3.x.x installed` and both libraries installed. The esp32 core download is several hundred MB; allow extra time on a slow connection.
 
 - [ ] **Step 2: Create `firmware/i2c_scan/i2c_scan.ino`**
 
