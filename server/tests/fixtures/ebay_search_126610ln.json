@@ -1,0 +1,13 @@
+{
+  "total": 8,
+  "itemSummaries": [
+    {"itemId": "v1|1|0", "title": "Rolex Submariner Date 126610LN Black Ceramic 2022 Box Papers", "price": {"value": "13000.00", "currency": "USD"}},
+    {"itemId": "v1|2|0", "title": "Rolex Submariner 126610 LN 41mm Oystersteel", "price": {"value": "13500.00", "currency": "USD"}},
+    {"itemId": "v1|3|0", "title": "2023 Rolex Submariner Date 126610LN Unworn", "price": {"value": "14000.00", "currency": "USD"}},
+    {"itemId": "v1|4|0", "title": "Rolex 126610LN Submariner Full Set", "price": {"value": "12000.00", "currency": "USD"}},
+    {"itemId": "v1|5|0", "title": "Rolex 126610LN box only", "price": {"value": "950.00", "currency": "USD"}},
+    {"itemId": "v1|6|0", "title": "Rolex Submariner 126610LN Diamond Custom Iced", "price": {"value": "60000.00", "currency": "USD"}},
+    {"itemId": "v1|7|0", "title": "Rolex Submariner 124060 No Date", "price": {"value": "9800.00", "currency": "USD"}},
+    {"itemId": "v1|8|0", "title": "Rolex 126610LN Submariner", "price": {"value": "11000.00", "currency": "GBP"}}
+  ]
+}
