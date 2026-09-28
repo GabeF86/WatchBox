@@ -1,0 +1,6 @@
+.superpowers/
+.env
+firmware/**/config.h
+__pycache__/
+*.db
+.venv/
