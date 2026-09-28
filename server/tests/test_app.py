@@ -1,7 +1,10 @@
+import asyncio
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
-from watchbox.app import create_app
+from watchbox.app import create_app, run_scheduled
 from watchbox.config import Settings
 from watchbox.pricing import PriceResult
 
@@ -115,3 +118,35 @@ def test_reference_without_letters_or_digits_is_rejected(client):
     assert "error=" in response.headers["location"]
     assert response.headers["location"].startswith("/?error=")
     assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+
+def test_whitespace_only_brand_or_model_is_rejected(client):
+    response = add(client, brand="   ")
+    assert "error=" in response.headers["location"]
+    assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+    response = add(client, model="\t\n")
+    assert "error=" in response.headers["location"]
+    assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+
+def test_run_scheduled_logs_and_swallows_exceptions(caplog):
+    def boom():
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.ERROR, logger="watchbox.app"):
+        asyncio.run(run_scheduled(boom))
+    assert "scheduled refresh failed" in caplog.text
+
+
+def test_run_scheduled_runs_a_working_job(tmp_path):
+    calls = []
+    asyncio.run(run_scheduled(lambda: calls.append(1)))
+    assert calls == [1]
+
+
+def test_lifespan_cancels_scheduler_task_cleanly(tmp_path, provider):
+    settings = Settings(ebay_client_id="x", ebay_client_secret="x", refresh_hours=1000, db_path=str(tmp_path / "t.db"))
+    with TestClient(create_app(settings, provider, run_scheduler=True)) as c:
+        c.get("/api/display")
+    # If the scheduler task wasn't cancelled and awaited cleanly, this would raise or hang.

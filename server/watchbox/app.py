@@ -1,5 +1,6 @@
 """FastAPI app: watch management pages, the LCD display API, and the price scheduler."""
 import asyncio
+import contextlib
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -37,9 +38,22 @@ def validate_reference(reference: str) -> None:
         raise ValueError("Reference number must contain letters or digits")
 
 
+def validate_required(brand: str, model: str) -> None:
+    if not brand.strip() or not model.strip():
+        raise ValueError("Brand and model are required")
+
+
 def redirect(path: str, error: str | None = None) -> RedirectResponse:
     url = f"{path}?error={quote(error)}" if error else path
     return RedirectResponse(url, status_code=303)
+
+
+async def run_scheduled(fn) -> None:
+    """Runs a scheduled job in a thread; any failure is logged, never raised, so the loop keeps going."""
+    try:
+        await asyncio.to_thread(fn)
+    except Exception:
+        log.exception("scheduled refresh failed")
 
 
 def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler: bool = True) -> FastAPI:
@@ -72,17 +86,20 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         finally:
             conn.close()
 
-    async def scheduler() -> None:
+    def check_and_refresh_if_stale() -> None:
         conn = db.connect(settings.db_path)
         try:
             stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours, datetime.now(timezone.utc))
         finally:
             conn.close()
         if stale:
-            await asyncio.to_thread(refresh_everything)
+            refresh_everything()
+
+    async def scheduler() -> None:
+        await run_scheduled(check_and_refresh_if_stale)
         while True:
             await asyncio.sleep(settings.refresh_hours * 3600)
-            await asyncio.to_thread(refresh_everything)
+            await run_scheduled(refresh_everything)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -90,6 +107,8 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         yield
         if task:
             task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     app = FastAPI(title="WatchBox v0", lifespan=lifespan)
 
@@ -109,6 +128,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr, reference: FormStr,
                      slot: FormStr = "", nickname: FormStr = ""):
         try:
+            validate_required(brand, model)
             validate_reference(reference)
             watch_id = db.add_watch(conn, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                                     nickname.strip() or None)
@@ -131,6 +151,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         if db.get_watch(conn, watch_id) is None:
             raise HTTPException(404, "Watch not found")
         try:
+            validate_required(brand, model)
             validate_reference(reference)
             db.update_watch(conn, watch_id, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                             nickname.strip() or None)

@@ -1059,16 +1059,19 @@ git commit -m "feat: price refresh with failure isolation"
 
 **Files:**
 - Create: `server/watchbox/config.py`, `server/watchbox/app.py`, `server/watchbox/templates/base.html`, `server/watchbox/templates/index.html`, `server/watchbox/templates/edit.html`, `server/watchbox/templates/_form.html`
-- Test: `server/tests/test_app.py`
+- Test: `server/tests/test_app.py`, `server/tests/test_config.py`
 
 - [ ] **Step 1: Write the failing tests**
 
 `server/tests/test_app.py`:
 ```python
+import asyncio
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
-from watchbox.app import create_app
+from watchbox.app import create_app, run_scheduled
 from watchbox.config import Settings
 from watchbox.pricing import PriceResult
 
@@ -1182,6 +1185,38 @@ def test_reference_without_letters_or_digits_is_rejected(client):
     assert "error=" in response.headers["location"]
     assert response.headers["location"].startswith("/?error=")
     assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+
+def test_whitespace_only_brand_or_model_is_rejected(client):
+    response = add(client, brand="   ")
+    assert "error=" in response.headers["location"]
+    assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+    response = add(client, model="\t\n")
+    assert "error=" in response.headers["location"]
+    assert client.get("/api/display").json()["screens"] == [{"line1": "No watches yet", "line2": "Add on the app"}]
+
+
+def test_run_scheduled_logs_and_swallows_exceptions(caplog):
+    def boom():
+        raise RuntimeError("boom")
+
+    with caplog.at_level(logging.ERROR, logger="watchbox.app"):
+        asyncio.run(run_scheduled(boom))
+    assert "scheduled refresh failed" in caplog.text
+
+
+def test_run_scheduled_runs_a_working_job(tmp_path):
+    calls = []
+    asyncio.run(run_scheduled(lambda: calls.append(1)))
+    assert calls == [1]
+
+
+def test_lifespan_cancels_scheduler_task_cleanly(tmp_path, provider):
+    settings = Settings(ebay_client_id="x", ebay_client_secret="x", refresh_hours=1000, db_path=str(tmp_path / "t.db"))
+    with TestClient(create_app(settings, provider, run_scheduler=True)) as c:
+        c.get("/api/display")
+    # If the scheduler task wasn't cancelled and awaited cleanly, this would raise or hang.
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1195,8 +1230,11 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'watchbox.app'`
 """Settings loaded from server/.env (see .env.example)."""
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+SERVER_DIR = Path(__file__).resolve().parents[1]
 
 
 @dataclass(frozen=True)
@@ -1209,12 +1247,57 @@ class Settings:
 
 def load_settings() -> Settings:
     load_dotenv()
+    refresh_hours = max(float(os.getenv("REFRESH_HOURS", "6")), 0.25)
+    db_path = os.getenv("DB_PATH", "watchbox.db")
+    if not os.path.isabs(db_path):
+        db_path = str(SERVER_DIR / db_path)
     return Settings(
         ebay_client_id=os.getenv("EBAY_CLIENT_ID", ""),
         ebay_client_secret=os.getenv("EBAY_CLIENT_SECRET", ""),
-        refresh_hours=float(os.getenv("REFRESH_HOURS", "6")),
-        db_path=os.getenv("DB_PATH", "watchbox.db"),
+        refresh_hours=refresh_hours,
+        db_path=db_path,
     )
+```
+
+`server/tests/test_config.py`:
+```python
+from pathlib import Path
+
+from watchbox.config import SERVER_DIR, load_settings
+
+
+def _clear(monkeypatch, **overrides):
+    # load_dotenv() never overrides an already-set env var, so setting every
+    # relevant var here means a real server/.env can't leak into the test.
+    defaults = {"EBAY_CLIENT_ID": "", "EBAY_CLIENT_SECRET": "", "REFRESH_HOURS": "6", "DB_PATH": "watchbox.db"}
+    for key, value in (defaults | overrides).items():
+        monkeypatch.setenv(key, value)
+
+
+def test_refresh_hours_is_clamped_to_a_quarter_hour_minimum(monkeypatch):
+    _clear(monkeypatch, REFRESH_HOURS="0")
+    assert load_settings().refresh_hours == 0.25
+
+
+def test_refresh_hours_above_minimum_is_kept(monkeypatch):
+    _clear(monkeypatch, REFRESH_HOURS="6")
+    assert load_settings().refresh_hours == 6.0
+
+
+def test_relative_db_path_is_resolved_against_the_server_directory(monkeypatch):
+    _clear(monkeypatch, DB_PATH="watchbox.db")
+    assert load_settings().db_path == str(SERVER_DIR / "watchbox.db")
+
+
+def test_absolute_db_path_is_kept_as_is(monkeypatch, tmp_path):
+    absolute = str(tmp_path / "somewhere" / "t.db")
+    _clear(monkeypatch, DB_PATH=absolute)
+    assert load_settings().db_path == absolute
+
+
+def test_server_dir_is_the_server_directory():
+    assert (SERVER_DIR / "watchbox").is_dir()
+    assert Path(SERVER_DIR).name == "server"
 ```
 
 - [ ] **Step 4: Implement `server/watchbox/app.py`**
@@ -1222,6 +1305,7 @@ def load_settings() -> Settings:
 ```python
 """FastAPI app: watch management pages, the LCD display API, and the price scheduler."""
 import asyncio
+import contextlib
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -1259,9 +1343,22 @@ def validate_reference(reference: str) -> None:
         raise ValueError("Reference number must contain letters or digits")
 
 
+def validate_required(brand: str, model: str) -> None:
+    if not brand.strip() or not model.strip():
+        raise ValueError("Brand and model are required")
+
+
 def redirect(path: str, error: str | None = None) -> RedirectResponse:
     url = f"{path}?error={quote(error)}" if error else path
     return RedirectResponse(url, status_code=303)
+
+
+async def run_scheduled(fn) -> None:
+    """Runs a scheduled job in a thread; any failure is logged, never raised, so the loop keeps going."""
+    try:
+        await asyncio.to_thread(fn)
+    except Exception:
+        log.exception("scheduled refresh failed")
 
 
 def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler: bool = True) -> FastAPI:
@@ -1294,17 +1391,20 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         finally:
             conn.close()
 
-    async def scheduler() -> None:
+    def check_and_refresh_if_stale() -> None:
         conn = db.connect(settings.db_path)
         try:
             stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours, datetime.now(timezone.utc))
         finally:
             conn.close()
         if stale:
-            await asyncio.to_thread(refresh_everything)
+            refresh_everything()
+
+    async def scheduler() -> None:
+        await run_scheduled(check_and_refresh_if_stale)
         while True:
             await asyncio.sleep(settings.refresh_hours * 3600)
-            await asyncio.to_thread(refresh_everything)
+            await run_scheduled(refresh_everything)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -1312,6 +1412,8 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         yield
         if task:
             task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     app = FastAPI(title="WatchBox v0", lifespan=lifespan)
 
@@ -1331,6 +1433,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr, reference: FormStr,
                      slot: FormStr = "", nickname: FormStr = ""):
         try:
+            validate_required(brand, model)
             validate_reference(reference)
             watch_id = db.add_watch(conn, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                                     nickname.strip() or None)
@@ -1353,6 +1456,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         if db.get_watch(conn, watch_id) is None:
             raise HTTPException(404, "Watch not found")
         try:
+            validate_required(brand, model)
             validate_reference(reference)
             db.update_watch(conn, watch_id, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
                             nickname.strip() or None)
@@ -1495,18 +1599,18 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 
 - [ ] **Step 6: Run to verify pass**
 
-Run: `server/.venv/bin/pytest server/tests/test_app.py -q`
-Expected: `11 passed`
+Run: `server/.venv/bin/pytest server/tests/test_app.py server/tests/test_config.py -q`
+Expected: `20 passed`
 
 - [ ] **Step 7: Run the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: `48 passed`
+Expected: `57 passed`
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add server/watchbox/config.py server/watchbox/app.py server/watchbox/templates server/tests/test_app.py
+git add server/watchbox/config.py server/watchbox/app.py server/watchbox/templates server/tests/test_app.py server/tests/test_config.py
 git commit -m "feat: web app for watches and LCD display API"
 ```
 
