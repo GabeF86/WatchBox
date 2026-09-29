@@ -7,9 +7,10 @@ part = "assembly";
 // ---------- Measure your parts and edit these ----------
 lcd_pcb        = [80, 36];         // LCD PCB width x height
 lcd_hole_sp    = [75, 31];         // LCD mounting-hole spacing (centre to centre)
-lcd_frame      = [71.3, 24.3, 7];  // display frame w x h, and how far it stands off the PCB front
-lcd_back_depth = 14;               // PCB back to top of the I2C backpack (incl. pins)
-esp_board      = [55, 28];         // ESP32 board length x width (measure yours!)
+lcd_frame      = [71, 24.44, 7];   // display frame w x h (measured), and how far it stands off the PCB front
+lcd_back_depth = 9.4;              // PCB back to top of the I2C backpack (18 mm measured total - 7 frame - 1.6 PCB)
+lcd_side_room  = 20;               // room beyond each short edge of the LCD PCB (backpack connectors stick out sideways)
+esp_board      = [50, 27];         // ESP32 board length x width (measured NodeMCU-32S)
 esp_raise      = 22;               // rail height: room for header plastic + Dupont housings + wire bend
 esp_top        = 4;                // tallest part on top of the ESP32 (module / USB socket)
 usb_cut        = [13, 9];          // cable plug clearance (width x height)
@@ -25,7 +26,7 @@ button_d       = 7;
 
 $fn = 32;
 boss_d = 7;
-in_w = lcd_pcb.x + 2 * clr + 14;
+in_w = lcd_pcb.x + 2 * clr + 2 * lcd_side_room;
 in_h = lcd_pcb.y + 2 * clr + 14;
 lcd_post_h = lcd_frame.z - wall;                         // frame face ends flush with the front
 lcd_stack = lcd_post_h + 1.6 + lcd_back_depth;
