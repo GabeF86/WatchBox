@@ -86,3 +86,15 @@ def test_price_date_is_stored_and_old_databases_are_migrated(tmp_path):
         assert db.get_watch(conn, wid).price_date == "2024-07-17"
     finally:
         conn.close()
+
+
+def test_price_reference_is_stored_and_changing_it_clears_prices(conn):
+    wid = db.add_watch(conn, "Glashütte Original", "Sixties Panorama Date", "2-39-47-01-01-04", 3, None,
+                       price_reference="2-39-47-06-02-04")
+    assert db.get_watch(conn, wid).price_reference == "2-39-47-06-02-04"
+    assert db.get_watch(conn, wid).pricing_reference == "2-39-47-06-02-04"
+    db.add_price(conn, wid, PriceResult(6779.0, 213, "thewatchapi"))
+    db.update_watch(conn, wid, "Glashütte Original", "Sixties Panorama Date", "2-39-47-01-01-04", 3, None,
+                    price_reference=None)
+    w = db.get_watch(conn, wid)
+    assert (w.price_reference, w.pricing_reference, w.price_usd) == (None, "2-39-47-01-01-04", None)

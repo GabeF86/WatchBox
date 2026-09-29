@@ -71,5 +71,5 @@ Before mounting the LCD: the common PCF8574 backpack's 4 header pins stick out s
 Stick the ESP32 to the rail with its USB end toward the right wall (the USB notch). When closing the box, the tall stop at the rail's other end must point away from the notch.
 
 ## Notes
-Prices are **asking** prices, not sold prices. TheWatchAPI's data can lag (in Sept 2026 its newest point was 2024-07-17), so the page shows the data date and the LCD adds the month (e.g. `$12,413 Jul24`) when the data is over 30 days old: TheWatchAPI's latest indicative USD price for the reference number, or (eBay fallback) the median of current eBay listings.
+Prices are **asking** prices, not sold prices. TheWatchAPI's data can lag (in Sept 2026 its newest point was 2024-07-17), so the page shows the data date. If your exact reference isn't listed, fill in "Price using reference" with a close variant; the price is then marked as an estimate (`~` on the LCD) and the LCD adds the month (e.g. `$12,413 Jul24`) when the data is over 30 days old: TheWatchAPI's latest indicative USD price for the reference number, or (eBay fallback) the median of current eBay listings.
 The price source is swappable (`server/watchbox/pricing.py` → `PriceProvider`).

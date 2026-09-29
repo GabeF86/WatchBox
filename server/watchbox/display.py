@@ -52,7 +52,7 @@ def as_of_label(price_date: str | None, today: date) -> str | None:
 def price_line(watch: Watch, today: date) -> str:
     if watch.price_usd is None:
         return "no price yet"
-    price = format_price(watch.price_usd)
+    price = ("~" if watch.price_reference else "") + format_price(watch.price_usd)
     label = as_of_label(watch.price_date, today)
     return f"{price} {label}" if label and len(price) + 1 + len(label) <= LCD_WIDTH else price
 

@@ -10,7 +10,7 @@
     <div class="slot">{{ w.slot if w.slot is not none else "–" }}</div>
     <div class="info">
       <strong>{{ w.nickname or w.model }}</strong>
-      <span class="muted">{{ w.brand }} {{ w.reference }}</span>
+      <span class="muted">{{ w.brand }} {{ w.reference }}{% if w.price_reference %} · estimated from {{ w.price_reference }}{% endif %}</span>
     </div>
     <div class="price">
       {% if w.price_usd is not none %}

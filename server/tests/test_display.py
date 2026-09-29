@@ -86,3 +86,10 @@ def test_as_of_label():
     assert as_of_label("2024-07-17", today) == "Jul24"
     assert as_of_label("2026-09-20", today) is None
     assert as_of_label(None, today) is None
+
+
+def test_estimated_prices_are_marked_on_the_lcd():
+    today = datetime(2026, 9, 29, tzinfo=timezone.utc).date()
+    est = Watch(id=1, brand="GO", model="Sixties", reference="A", slot=3, nickname="GO Sixties",
+                price_usd=6779.32, price_date="2024-07-17", price_reference="B")
+    assert build_screens([est], today=today)[1] == {"line1": "3 GO Sixties", "line2": "~$6,779 Jul24"}

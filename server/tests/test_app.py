@@ -170,3 +170,14 @@ def test_index_labels_thewatchapi_prices_without_listing_counts(tmp_path):
         assert "listings" not in page
         assert "$13,400" in page
         assert "data from 2024-07-17" in page
+
+
+def test_price_reference_field_is_used_and_shown(client, provider):
+    provider.prices["2-39-47-06-02-04"] = 6779.0
+    add(client, brand="Glashütte Original", model="Sixties Panorama Date", reference="2-39-47-01-01-04",
+        slot="3", price_reference="2-39-47-06-02-04")
+    assert provider.calls == ["2-39-47-06-02-04"]
+    page = client.get("/").text
+    assert "estimated from 2-39-47-06-02-04" in page
+    assert client.get("/watches/1/edit").text.count('value="2-39-47-06-02-04"') == 1
+    assert client.get("/api/display").json()["screens"][1]["line2"].startswith("~$6,779")

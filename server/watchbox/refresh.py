@@ -11,23 +11,23 @@ log = logging.getLogger("watchbox.refresh")
 
 def refresh_watch(conn: sqlite3.Connection, provider: PriceProvider, watch: db.Watch) -> bool:
     try:
-        result = provider.get_price(watch.brand, watch.reference)
+        result = provider.get_price(watch.brand, watch.pricing_reference)
     except Exception:
-        log.exception("price fetch failed for %s %s", watch.brand, watch.reference)
+        log.exception("price fetch failed for %s %s", watch.brand, watch.pricing_reference)
         return False
     if result is None:
-        log.warning("not enough listings for %s %s", watch.brand, watch.reference)
+        log.warning("not enough listings for %s %s", watch.brand, watch.pricing_reference)
         return False
     current = db.get_watch(conn, watch.id)
-    if current is None or (current.brand, current.reference) != (watch.brand, watch.reference):
+    if current is None or (current.brand, current.pricing_reference) != (watch.brand, watch.pricing_reference):
         log.info("watch %s changed or was deleted during fetch; discarding result", watch.id)
         return False
     try:
         db.add_price(conn, watch.id, result)
     except sqlite3.Error:
-        log.exception("failed to store price for %s %s", watch.brand, watch.reference)
+        log.exception("failed to store price for %s %s", watch.brand, watch.pricing_reference)
         return False
-    log.info("%s %s -> $%.0f (%d listings)", watch.brand, watch.reference, result.price_usd, result.sample_size)
+    log.info("%s %s -> $%.0f (%d listings)", watch.brand, watch.pricing_reference, result.price_usd, result.sample_size)
     return True
 
 

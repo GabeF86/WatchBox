@@ -128,12 +128,14 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 
     @app.post("/watches")
     def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr, reference: FormStr,
-                     slot: FormStr = "", nickname: FormStr = ""):
+                     slot: FormStr = "", nickname: FormStr = "", price_reference: FormStr = ""):
         try:
             validate_required(brand, model)
             validate_reference(reference)
+            if price_reference.strip():
+                validate_reference(price_reference)
             watch_id = db.add_watch(conn, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
-                                    nickname.strip() or None)
+                                    nickname.strip() or None, price_reference.strip() or None)
         except (ValueError, db.SlotTakenError) as e:
             return redirect("/", str(e))
         background.add_task(refresh_one, watch_id)
@@ -149,14 +151,16 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 
     @app.post("/watches/{watch_id}")
     def update_watch(watch_id: int, background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr,
-                     reference: FormStr, slot: FormStr = "", nickname: FormStr = ""):
+                     reference: FormStr, slot: FormStr = "", nickname: FormStr = "", price_reference: FormStr = ""):
         if db.get_watch(conn, watch_id) is None:
             raise HTTPException(404, "Watch not found")
         try:
             validate_required(brand, model)
             validate_reference(reference)
+            if price_reference.strip():
+                validate_reference(price_reference)
             db.update_watch(conn, watch_id, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
-                            nickname.strip() or None)
+                            nickname.strip() or None, price_reference.strip() or None)
         except (ValueError, db.SlotTakenError) as e:
             return redirect(f"/watches/{watch_id}/edit", str(e))
         background.add_task(refresh_one, watch_id)

@@ -9,5 +9,8 @@
     </select>
   </label>
   <label>Nickname (optional) <input name="nickname" value="{{ (fw.nickname or '') if fw else '' }}" placeholder="Dad's Sub"></label>
+  <label>Price using reference (optional)
+    <input name="price_reference" value="{{ (fw.price_reference or '') if fw else '' }}" placeholder="a close variant, if yours isn't listed">
+  </label>
   <button type="submit">{{ submit_label }}</button>
 </form>

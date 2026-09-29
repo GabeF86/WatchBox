@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS watches (
     reference TEXT NOT NULL,
     slot INTEGER UNIQUE CHECK (slot BETWEEN 1 AND 8),
     nickname TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    price_reference TEXT
 );
 CREATE TABLE IF NOT EXISTS prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +29,7 @@ CREATE TABLE IF NOT EXISTS prices (
 """
 
 _SELECT = """
-SELECT w.id, w.brand, w.model, w.reference, w.slot, w.nickname,
+SELECT w.id, w.brand, w.model, w.reference, w.slot, w.nickname, w.price_reference,
        p.price_usd, p.sample_size, p.fetched_at, p.source AS price_source, p.price_date
 FROM watches w
 LEFT JOIN prices p ON p.id = (
@@ -45,11 +46,16 @@ class Watch:
     reference: str
     slot: int | None
     nickname: str | None
+    price_reference: str | None = None  # look prices up under this reference instead (an estimate)
     price_usd: float | None = None
     sample_size: int | None = None
     fetched_at: str | None = None
     price_source: str | None = None
     price_date: str | None = None
+
+    @property
+    def pricing_reference(self) -> str:
+        return self.price_reference or self.reference
 
 
 class SlotTakenError(Exception):
@@ -69,9 +75,15 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
-    if "price_date" not in {row["name"] for row in conn.execute("PRAGMA table_info(prices)")}:
-        conn.execute("ALTER TABLE prices ADD COLUMN price_date TEXT")  # databases created before dated prices
+    # Databases created before these columns existed.
+    _add_column_if_missing(conn, "prices", "price_date")
+    _add_column_if_missing(conn, "watches", "price_reference")
     return conn
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str) -> None:
+    if column not in {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
 
 def _write(conn: sqlite3.Connection, sql: str, params: tuple, slot: int | None, commit: bool = True) -> sqlite3.Cursor:
@@ -96,26 +108,29 @@ def get_watch(conn: sqlite3.Connection, watch_id: int) -> Watch | None:
     return Watch(**dict(row)) if row else None
 
 
-def add_watch(conn, brand: str, model: str, reference: str, slot: int | None, nickname: str | None) -> int:
+def add_watch(conn, brand: str, model: str, reference: str, slot: int | None, nickname: str | None,
+              price_reference: str | None = None) -> int:
     cur = _write(
         conn,
-        "INSERT INTO watches (brand, model, reference, slot, nickname, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (brand, model, reference, slot, nickname, now_iso()),
+        "INSERT INTO watches (brand, model, reference, slot, nickname, created_at, price_reference)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (brand, model, reference, slot, nickname, now_iso(), price_reference),
         slot,
     )
     return cur.lastrowid
 
 
-def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, slot: int | None, nickname: str | None) -> None:
-    old = conn.execute("SELECT brand, reference FROM watches WHERE id = ?", (watch_id,)).fetchone()
+def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, slot: int | None, nickname: str | None,
+                 price_reference: str | None = None) -> None:
+    old = conn.execute("SELECT brand, reference, price_reference FROM watches WHERE id = ?", (watch_id,)).fetchone()
     _write(
         conn,
-        "UPDATE watches SET brand = ?, model = ?, reference = ?, slot = ?, nickname = ? WHERE id = ?",
-        (brand, model, reference, slot, nickname, watch_id),
+        "UPDATE watches SET brand = ?, model = ?, reference = ?, slot = ?, nickname = ?, price_reference = ? WHERE id = ?",
+        (brand, model, reference, slot, nickname, price_reference, watch_id),
         slot,
         commit=False,
     )
-    if old and (old["brand"], old["reference"]) != (brand, reference):
+    if old and (old["brand"], old["reference"], old["price_reference"]) != (brand, reference, price_reference):
         conn.execute("DELETE FROM prices WHERE watch_id = ?", (watch_id,))
     conn.commit()
 

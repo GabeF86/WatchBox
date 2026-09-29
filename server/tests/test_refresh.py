@@ -67,3 +67,22 @@ def test_refresh_watch_skips_storing_when_reference_changed_during_fetch(tmp_pat
         assert db.get_watch(conn, watch_id).price_usd is None
     finally:
         conn.close()
+
+
+def test_refresh_uses_price_reference_when_set(tmp_path):
+    conn = db.connect(tmp_path / "t.db")
+    try:
+        wid = db.add_watch(conn, "Glashütte Original", "Sixties", "2-39-47-01-01-04", 3, None,
+                           price_reference="2-39-47-06-02-04")
+        seen = []
+
+        class Provider:
+            def get_price(self, brand, reference):
+                seen.append(reference)
+                return PriceResult(6779.0, 10, "fake")
+
+        assert refresh_all(conn, Provider()) == 1
+        assert seen == ["2-39-47-06-02-04"]
+        assert db.get_watch(conn, wid).price_usd == 6779.0
+    finally:
+        conn.close()

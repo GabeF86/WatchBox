@@ -153,3 +153,8 @@ Slot sensors (IR in the slot wall vs FSR under the pillow, tested in the insert)
 
 - With a paid plan, TheWatchAPI's newest price point for every tested reference was **2024-07-17**, so a 30-day window returned nothing. The provider now requests the full history (no `date_from`) and uses the newest point, storing its date as `prices.price_date` (`PriceResult.as_of`). Older databases get the column added on connect.
 - The web page shows "data from YYYY-MM-DD". On the LCD, when the data is over 30 days old, line 2 becomes `<price> <MonYY>`, for example `$12,413 Jul24`, if it fits in 16 characters.
+
+### Update 2026-09-29: estimated prices via a close reference
+
+- Watches have an optional `price_reference`. When it's set, prices are looked up under it instead of the real `reference`. This is for references the price source doesn't list, for example Glashütte 2-39-47-01-01-04 priced from 2-39-47-06-02-04.
+- Such prices are marked as estimates: the web page shows "estimated from <ref>", and the LCD prefixes the price with `~` (for example `~$6,779 Jul24`). Changing `price_reference` clears the watch's price history, the same as changing brand or reference. Older databases get the column added on connect.
