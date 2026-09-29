@@ -148,3 +148,8 @@ Slot sensors (IR in the slot wall vs FSR under the pillow, tested in the insert)
 - Config: `THEWATCHAPI_TOKEN`, and `PRICE_SOURCE=auto|thewatchapi|ebay`. `auto` prefers TheWatchAPI when its token is set, otherwise eBay. `REFRESH_HOURS` now defaults to 24.
 - `scripts/check_price.py` uses whichever source is configured. For TheWatchAPI it prints the last 30 days of data points and the chosen price.
 - Open question: TheWatchAPI's pricing page says historical prices are on every plan, including free, while its documentation says price endpoints need "Standard plan and above". Confirm with a real free token.
+
+### Update 2026-09-29: dated prices
+
+- With a paid plan, TheWatchAPI's newest price point for every tested reference was **2024-07-17**, so a 30-day window returned nothing. The provider now requests the full history (no `date_from`) and uses the newest point, storing its date as `prices.price_date` (`PriceResult.as_of`). Older databases get the column added on connect.
+- The web page shows "data from YYYY-MM-DD". On the LCD, when the data is over 30 days old, line 2 becomes `<price> <MonYY>`, for example `$12,413 Jul24`, if it fits in 16 characters.

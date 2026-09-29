@@ -1,16 +1,12 @@
-from datetime import date
-
 import httpx
 import pytest
 
 from watchbox.watchapi import PRICE_HISTORY_URL, TheWatchApiProvider, WatchApiError
 
-TODAY = date(2026, 9, 28)
-
 
 def make_provider(handler):
     http = httpx.Client(transport=httpx.MockTransport(handler))
-    return TheWatchApiProvider("secret-token", http=http, today=lambda: TODAY)
+    return TheWatchApiProvider("secret-token", http=http)
 
 
 def history(brand="Rolex", reference="126610LN", points=()):
@@ -18,19 +14,19 @@ def history(brand="Rolex", reference="126610LN", points=()):
             "data": [{"date": d, "price": p} for d, p in points]}
 
 
-def test_get_price_uses_latest_point_in_last_30_days():
+def test_get_price_uses_latest_point_and_records_its_date():
     def handler(request):
         assert str(request.url).startswith(PRICE_HISTORY_URL)
         assert request.url.params["api_token"] == "secret-token"
         assert request.url.params["reference_number"] == "126610LN"
-        assert request.url.params["date_from"] == "2026-08-29"
+        assert "date_from" not in request.url.params  # their data can lag; take the newest they have
         return httpx.Response(200, json=history(points=[
             ("2026-09-27T00:00:00.000Z", 13420.5),
             ("2026-09-01T00:00:00.000Z", 13100.0),
         ]))
 
     result = make_provider(handler).get_price("Rolex", "126610LN")
-    assert (result.price_usd, result.sample_size, result.source) == (13420.5, 2, "thewatchapi")
+    assert (result.price_usd, result.sample_size, result.source, result.as_of) == (13420.5, 2, "thewatchapi", "2026-09-27")
 
 
 def test_no_data_returns_none():

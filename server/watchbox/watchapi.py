@@ -1,16 +1,16 @@
-"""TheWatchAPI price provider (thewatchapi.com): latest indicative USD asking price per reference."""
+"""TheWatchAPI price provider (thewatchapi.com): latest indicative USD asking price per reference.
+
+Their history can lag by months, so the date of the point used is kept (PriceResult.as_of).
+"""
 import logging
 import re
 import unicodedata
-from datetime import date, timedelta
-from typing import Callable
 
 import httpx
 
 from .pricing import PriceResult
 
 PRICE_HISTORY_URL = "https://api.thewatchapi.com/v1/reference/price/history"
-HISTORY_DAYS = 30
 
 log = logging.getLogger("watchbox.watchapi")
 
@@ -27,18 +27,15 @@ def _norm_brand(text: str) -> str:
 class TheWatchApiProvider:
     source = "thewatchapi"
 
-    def __init__(self, api_token: str, http: httpx.Client | None = None,
-                 today: Callable[[], date] = date.today):
+    def __init__(self, api_token: str, http: httpx.Client | None = None):
         self._api_token = api_token
         self._http = http or httpx.Client(timeout=15)
-        self._today = today
 
     def price_history(self, reference: str) -> dict:
         # The token travels in the query string, so never put the URL or request in an error message.
         response = self._http.get(PRICE_HISTORY_URL, params={
             "api_token": self._api_token,
             "reference_number": reference,
-            "date_from": (self._today() - timedelta(days=HISTORY_DAYS)).isoformat(),
         })
         if response.status_code != 200:
             try:
@@ -61,4 +58,5 @@ class TheWatchApiProvider:
         if not points:
             return None
         latest = max(points, key=lambda p: p["date"])
-        return PriceResult(price_usd=round(float(latest["price"]), 2), sample_size=len(points), source=self.source)
+        return PriceResult(price_usd=round(float(latest["price"]), 2), sample_size=len(points), source=self.source,
+                           as_of=latest["date"][:10])

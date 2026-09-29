@@ -66,3 +66,23 @@ def test_delete_removes_watch_and_prices(conn):
 
 def test_get_missing_watch_returns_none(conn):
     assert db.get_watch(conn, 999) is None
+
+
+def test_price_date_is_stored_and_old_databases_are_migrated(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE watches (id INTEGER PRIMARY KEY AUTOINCREMENT, brand TEXT NOT NULL, model TEXT NOT NULL,
+            reference TEXT NOT NULL, slot INTEGER UNIQUE CHECK (slot BETWEEN 1 AND 8), nickname TEXT, created_at TEXT NOT NULL);
+        CREATE TABLE prices (id INTEGER PRIMARY KEY AUTOINCREMENT, watch_id INTEGER NOT NULL REFERENCES watches(id)
+            ON DELETE CASCADE, price_usd REAL NOT NULL, sample_size INTEGER NOT NULL, source TEXT NOT NULL, fetched_at TEXT NOT NULL);
+    """)
+    old.close()
+    conn = db.connect(path)
+    try:
+        wid = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None)
+        db.add_price(conn, wid, PriceResult(12412.6, 270, "thewatchapi", as_of="2024-07-17"))
+        assert db.get_watch(conn, wid).price_date == "2024-07-17"
+    finally:
+        conn.close()

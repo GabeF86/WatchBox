@@ -22,13 +22,14 @@ CREATE TABLE IF NOT EXISTS prices (
     price_usd REAL NOT NULL,
     sample_size INTEGER NOT NULL,
     source TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
+    fetched_at TEXT NOT NULL,
+    price_date TEXT
 );
 """
 
 _SELECT = """
 SELECT w.id, w.brand, w.model, w.reference, w.slot, w.nickname,
-       p.price_usd, p.sample_size, p.fetched_at, p.source AS price_source
+       p.price_usd, p.sample_size, p.fetched_at, p.source AS price_source, p.price_date
 FROM watches w
 LEFT JOIN prices p ON p.id = (
     SELECT id FROM prices WHERE watch_id = w.id ORDER BY fetched_at DESC, id DESC LIMIT 1
@@ -48,6 +49,7 @@ class Watch:
     sample_size: int | None = None
     fetched_at: str | None = None
     price_source: str | None = None
+    price_date: str | None = None
 
 
 class SlotTakenError(Exception):
@@ -67,6 +69,8 @@ def connect(path: str | PathLike) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    if "price_date" not in {row["name"] for row in conn.execute("PRAGMA table_info(prices)")}:
+        conn.execute("ALTER TABLE prices ADD COLUMN price_date TEXT")  # databases created before dated prices
     return conn
 
 
@@ -123,8 +127,8 @@ def delete_watch(conn: sqlite3.Connection, watch_id: int) -> None:
 
 def add_price(conn: sqlite3.Connection, watch_id: int, result: PriceResult, fetched_at: str | None = None) -> None:
     conn.execute(
-        "INSERT INTO prices (watch_id, price_usd, sample_size, source, fetched_at) VALUES (?, ?, ?, ?, ?)",
-        (watch_id, result.price_usd, result.sample_size, result.source, fetched_at or now_iso()),
+        "INSERT INTO prices (watch_id, price_usd, sample_size, source, fetched_at, price_date) VALUES (?, ?, ?, ?, ?, ?)",
+        (watch_id, result.price_usd, result.sample_size, result.source, fetched_at or now_iso(), result.as_of),
     )
     conn.commit()
 

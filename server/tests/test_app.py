@@ -157,7 +157,7 @@ class WatchApiLikeProvider(FakeProvider):
 
     def get_price(self, brand, reference):
         self.calls.append(reference)
-        return PriceResult(13400.0, 5, "thewatchapi")
+        return PriceResult(13400.0, 5, "thewatchapi", as_of="2024-07-17")
 
 
 def test_index_labels_thewatchapi_prices_without_listing_counts(tmp_path):
@@ -169,3 +169,4 @@ def test_index_labels_thewatchapi_prices_without_listing_counts(tmp_path):
         assert "TheWatchAPI" in page
         assert "listings" not in page
         assert "$13,400" in page
+        assert "data from 2024-07-17" in page

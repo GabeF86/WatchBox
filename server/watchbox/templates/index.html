@@ -14,7 +14,7 @@
     </div>
     <div class="price">
       {% if w.price_usd is not none %}
-        {{ format_price(w.price_usd) }}<small>{% if w.price_source == "ebay" %}{{ w.sample_size }} listings · {% endif %}{{ time_ago(w.fetched_at) }}</small>
+        {{ format_price(w.price_usd) }}<small>{% if w.price_source == "ebay" %}{{ w.sample_size }} listings · {% endif %}{% if w.price_date %}data from {{ w.price_date }} · {% endif %}checked {{ time_ago(w.fetched_at) }}</small>
       {% else %}
         <span class="muted">no price yet</span>
       {% endif %}

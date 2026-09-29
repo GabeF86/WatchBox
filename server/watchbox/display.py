@@ -1,9 +1,10 @@
 """Turns watches into short, ready-to-show lines for the 16x2 LCD."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from .db import Watch
 
 LCD_WIDTH = 16
+STALE_AFTER = timedelta(days=30)
 
 
 def fit(text: str) -> str:
@@ -40,7 +41,24 @@ def display_name(watch: Watch) -> str:
     return f"{watch.slot} {name}" if watch.slot is not None else name
 
 
-def build_screens(watches: list[Watch]) -> list[dict[str, str]]:
+def as_of_label(price_date: str | None, today: date) -> str | None:
+    """'Jul24' when the market data behind a price is over 30 days old, else None."""
+    if not price_date:
+        return None
+    day = date.fromisoformat(price_date)
+    return day.strftime("%b%y") if today - day > STALE_AFTER else None
+
+
+def price_line(watch: Watch, today: date) -> str:
+    if watch.price_usd is None:
+        return "no price yet"
+    price = format_price(watch.price_usd)
+    label = as_of_label(watch.price_date, today)
+    return f"{price} {label}" if label and len(price) + 1 + len(label) <= LCD_WIDTH else price
+
+
+def build_screens(watches: list[Watch], today: date | None = None) -> list[dict[str, str]]:
+    today = today or datetime.now(timezone.utc).date()
     if not watches:
         return [{"line1": "No watches yet", "line2": "Add on the app"}]
     ordered = sorted(watches, key=lambda w: (w.slot is None, w.slot or 0, w.id))
@@ -51,6 +69,5 @@ def build_screens(watches: list[Watch]) -> list[dict[str, str]]:
         "line2": fit(format_price(sum(w.price_usd for w in priced))),
     }]
     for watch in ordered:
-        price = format_price(watch.price_usd) if watch.price_usd is not None else "no price yet"
-        screens.append({"line1": fit(display_name(watch)), "line2": fit(price)})
+        screens.append({"line1": fit(display_name(watch)), "line2": fit(price_line(watch, today))})
     return screens

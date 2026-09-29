@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from watchbox.db import Watch
-from watchbox.display import build_screens, fit, format_price, time_ago
+from watchbox.display import as_of_label, build_screens, fit, format_price, time_ago
 
 
 def w(id, model, slot=None, price=None, nickname=None):
@@ -68,3 +68,21 @@ def test_time_ago():
 def test_time_ago_treats_naive_timestamp_as_utc():
     now = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
     assert time_ago("2026-09-27T11:15:00", now) == "45 min ago"
+
+
+def test_old_prices_show_their_month_on_the_lcd():
+    today = datetime(2026, 9, 29, tzinfo=timezone.utc).date()
+    old = Watch(id=1, brand="Rolex", model="Submariner", reference="X", slot=4, nickname=None,
+                price_usd=12412.6, price_date="2024-07-17")
+    fresh = Watch(id=2, brand="Rolex", model="Datejust", reference="Y", slot=2, nickname=None,
+                  price_usd=14417.59, price_date="2026-09-20")
+    screens = build_screens([old, fresh], today=today)
+    assert screens[1] == {"line1": "2 Datejust", "line2": "$14,418"}
+    assert screens[2] == {"line1": "4 Submariner", "line2": "$12,413 Jul24"}
+
+
+def test_as_of_label():
+    today = datetime(2026, 9, 29, tzinfo=timezone.utc).date()
+    assert as_of_label("2024-07-17", today) == "Jul24"
+    assert as_of_label("2026-09-20", today) is None
+    assert as_of_label(None, today) is None

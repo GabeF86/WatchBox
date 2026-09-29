@@ -19,6 +19,7 @@ class PriceResult:
     price_usd: float
     sample_size: int
     source: str
+    as_of: str | None = None  # YYYY-MM-DD of the market data, when the source says
 
 
 class PriceProvider(Protocol):

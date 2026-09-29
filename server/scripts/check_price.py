@@ -25,11 +25,12 @@ def check_ebay(provider: EbayBrowseProvider, brand: str, reference: str) -> None
 def check_watchapi(provider: TheWatchApiProvider, brand: str, reference: str) -> None:
     body = provider.price_history(reference)
     meta = body.get("meta") or {}
-    print(f"TheWatchAPI: {meta.get('brand')} {meta.get('reference_number')}, last 30 days\n")
-    for point in sorted(body.get("data") or [], key=lambda p: p["date"]):
+    points = sorted(body.get("data") or [], key=lambda p: p["date"])
+    print(f"TheWatchAPI: {meta.get('brand')} {meta.get('reference_number')}, {len(points)} points, newest 5:\n")
+    for point in points[-5:]:
         print(f"  {point['date'][:10]}  ${point['price']:>10,.0f}")
     result = provider.get_price(brand, reference)
-    print("\nPrice:", f"${result.price_usd:,.0f} (latest point)" if result else "no price (no data, or brand doesn't match)")
+    print("\nPrice:", f"${result.price_usd:,.0f} (data from {result.as_of})" if result else "no price (no data, or brand doesn't match)")
 
 
 def main() -> None:
