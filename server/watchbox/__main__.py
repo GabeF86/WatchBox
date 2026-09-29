@@ -7,7 +7,7 @@ import uvicorn
 
 from .app import create_app
 from .config import load_settings
-from .ebay import EbayBrowseProvider
+from .providers import make_provider
 
 
 def lan_ip() -> str:
@@ -23,12 +23,12 @@ def lan_ip() -> str:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    # httpx logs full request URLs at INFO, and TheWatchAPI's token is a query parameter.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = load_settings()
-    provider = None
-    if settings.ebay_client_id and settings.ebay_client_secret:
-        provider = EbayBrowseProvider(settings.ebay_client_id, settings.ebay_client_secret)
-    else:
-        logging.warning("EBAY_CLIENT_ID / EBAY_CLIENT_SECRET not set; prices will not update")
+    provider = make_provider(settings)
+    if provider:
+        logging.info("Price source:         %s", provider.source)
     port = int(os.getenv("PORT", "8000"))
     logging.info("Web app:              http://localhost:%d", port)
     logging.info("ESP32 SERVER_URL:     http://%s:%d", lan_ip(), port)

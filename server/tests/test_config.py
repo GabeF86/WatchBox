@@ -35,3 +35,12 @@ def test_absolute_db_path_is_kept_as_is(monkeypatch, tmp_path):
 def test_server_dir_is_the_server_directory():
     assert (SERVER_DIR / "watchbox").is_dir()
     assert Path(SERVER_DIR).name == "server"
+
+
+def test_watchapi_settings_and_daily_default(monkeypatch):
+    monkeypatch.setenv("THEWATCHAPI_TOKEN", "tok")
+    monkeypatch.setenv("PRICE_SOURCE", "TheWatchAPI")
+    monkeypatch.delenv("REFRESH_HOURS", raising=False)
+    monkeypatch.setattr("watchbox.config.load_dotenv", lambda: None)  # ignore a real server/.env
+    s = load_settings()
+    assert (s.watchapi_token, s.price_source, s.refresh_hours) == ("tok", "thewatchapi", 24.0)

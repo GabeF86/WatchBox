@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS prices (
 
 _SELECT = """
 SELECT w.id, w.brand, w.model, w.reference, w.slot, w.nickname,
-       p.price_usd, p.sample_size, p.fetched_at
+       p.price_usd, p.sample_size, p.fetched_at, p.source AS price_source
 FROM watches w
 LEFT JOIN prices p ON p.id = (
     SELECT id FROM prices WHERE watch_id = w.id ORDER BY fetched_at DESC, id DESC LIMIT 1
@@ -47,6 +47,7 @@ class Watch:
     price_usd: float | None = None
     sample_size: int | None = None
     fetched_at: str | None = None
+    price_source: str | None = None
 
 
 class SlotTakenError(Exception):

@@ -1,5 +1,7 @@
 # Watch Box Prototype v0: Design
 
+> **Update 2026-09-28:** TheWatchAPI (thewatchapi.com) is now the default price source. See "Price source: TheWatchAPI" at the end. The eBay provider below stays as a fallback. The default refresh is now every 24 h to fit TheWatchAPI's free plan (25 requests a day).
+
 **Date:** 2026-09-27
 **Status:** Approved (brainstorming), awaiting spec review
 
@@ -136,3 +138,13 @@ The box asks the server for ready-to-show data, and the server owns all logic an
 ## Later (not v0)
 
 Slot sensors (IR in the slot wall vs FSR under the pillow, tested in the insert), 3.5" ESP32-S3 display board, LiPo and charging, cloud deployment and accounts, pairing, WatchCharts provider, lid-mounted housing.
+
+## Price source: TheWatchAPI (added 2026-09-28)
+
+- `TheWatchApiProvider` calls `GET https://api.thewatchapi.com/v1/reference/price/history` with `api_token`, `reference_number` and `date_from` (today minus 30 days). It uses the newest data point's `price` (indicative USD asking price). `sample_size` stores the number of data points, and the UI hides the "N listings" text for this source.
+- If the response's `meta.brand` doesn't match the watch's brand (ignoring case, accents and punctuation), no price is stored, because reference numbers can collide across brands.
+- Empty data means no price is stored, and the UI and LCD show "no price yet".
+- Non-200 responses raise `WatchApiError` with the API's error code and message. A 402 or 403 adds a hint that price history may need a higher plan. The token is a query parameter, so it never appears in error messages, and the `httpx` logger is set to WARNING so request URLs aren't logged.
+- Config: `THEWATCHAPI_TOKEN`, and `PRICE_SOURCE=auto|thewatchapi|ebay`. `auto` prefers TheWatchAPI when its token is set, otherwise eBay. `REFRESH_HOURS` now defaults to 24.
+- `scripts/check_price.py` uses whichever source is configured. For TheWatchAPI it prints the last 30 days of data points and the chosen price.
+- Open question: TheWatchAPI's pricing page says historical prices are on every plan, including free, while its documentation says price endpoints need "Standard plan and above". Confirm with a real free token.

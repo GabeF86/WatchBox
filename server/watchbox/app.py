@@ -21,6 +21,7 @@ from .pricing import PriceProvider
 log = logging.getLogger("watchbox.app")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 SLOTS = range(1, 9)
+SOURCE_LABELS = {"thewatchapi": "TheWatchAPI asking prices", "ebay": "median eBay asking price"}
 FormStr = Annotated[str, Form()]
 
 
@@ -114,7 +115,8 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 
     def render(request: Request, name: str, **context) -> HTMLResponse:
         context |= {"format_price": format_price, "time_ago": time_ago, "slots": SLOTS,
-                    "has_provider": provider is not None}
+                    "has_provider": provider is not None,
+                    "source_label": SOURCE_LABELS.get(getattr(provider, "source", None), "asking prices")}
         return templates.TemplateResponse(request, name, context)
 
     @app.get("/", response_class=HTMLResponse)

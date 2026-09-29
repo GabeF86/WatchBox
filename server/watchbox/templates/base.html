@@ -34,7 +34,7 @@
 </head>
 <body>
 <main>
-  {% if not has_provider %}<p class="banner">eBay keys missing: add them to server/.env and restart. Prices won't update.</p>{% endif %}
+  {% if not has_provider %}<p class="banner">No price source configured: add THEWATCHAPI_TOKEN (or eBay keys) to server/.env and restart. Prices won't update.</p>{% endif %}
   {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
   {% block content %}{% endblock %}
 </main>

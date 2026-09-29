@@ -1,7 +1,7 @@
 # WatchBox v0
 
 A prototype watch case that shows your collection's market value on a 16×2 LCD.
-A local web app stores your watches and fetches eBay prices, and an ESP32 displays them.
+A local web app stores your watches and fetches market prices from TheWatchAPI (or eBay), and an ESP32 displays them.
 
 ## Hardware you need
 - ESP32 devkit, I2C LCD1602 (PCF8574 backpack), USB cable and charger
@@ -10,7 +10,12 @@ A local web app stores your watches and fetches eBay prices, and an ESP32 displa
 - Back plate: 4× M3 × 10–12 mm self-tapping screws
 - Double-sided foam tape for the ESP32
 
-## Get eBay keys
+## Get a price source key
+**TheWatchAPI (default):** register free at https://www.thewatchapi.com/register and put your API token in `server/.env` as `THEWATCHAPI_TOKEN`.
+The free plan allows 25 requests a day, so keep `REFRESH_HOURS=24` (8 watches = 8 requests a day, plus one per watch you add or edit).
+Their docs say price history may need the Standard plan; if so, the app logs a clear "may need a higher TheWatchAPI plan" error. Check with `scripts/check_price.py` right after you get your token.
+
+**eBay (optional fallback):** if `THEWATCHAPI_TOKEN` is empty, the app uses eBay keys instead.
 1. Sign up at https://developer.ebay.com and create a **Production** keyset.
 2. When asked about Marketplace Account Deletion notifications, choose the opt-out/exempt option (this app stores no eBay user data).
 3. Copy **App ID** → `EBAY_CLIENT_ID` and **Cert ID** → `EBAY_CLIENT_SECRET` in `server/.env`.
@@ -19,7 +24,7 @@ A local web app stores your watches and fetches eBay prices, and an ESP32 displa
 ```bash
 cd server
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # add your eBay Production keys
+cp .env.example .env        # add your THEWATCHAPI_TOKEN
 .venv/bin/python -m watchbox
 ```
 Open http://localhost:8000 and add watches. The log prints the `ESP32 SERVER_URL` to put in the firmware config.
@@ -66,5 +71,5 @@ Before mounting the LCD: the common PCF8574 backpack's 4 header pins stick out s
 Stick the ESP32 to the rail with its USB end toward the right wall (the USB notch). When closing the box, the tall stop at the rail's other end must point away from the notch.
 
 ## Notes
-Prices are the median **asking** price of current eBay listings for the reference number, not sold prices.
+Prices are **asking** prices, not sold prices: TheWatchAPI's latest indicative USD price for the reference number, or (eBay fallback) the median of current eBay listings.
 The price source is swappable (`server/watchbox/pricing.py` → `PriceProvider`).

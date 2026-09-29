@@ -17,6 +17,7 @@ def test_add_and_list_uses_latest_price(conn):
     db.add_price(conn, wid, PriceResult(13400.0, 22, "ebay"), fetched_at="2026-09-27T16:00:00+00:00")
     [w] = db.list_watches(conn)
     assert (w.id, w.model, w.slot, w.price_usd, w.sample_size) == (wid, "Submariner", 1, 13400.0, 22)
+    assert w.price_source == "ebay"
     assert db.latest_fetch_time(conn) == "2026-09-27T16:00:00+00:00"
 
 

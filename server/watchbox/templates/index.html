@@ -2,7 +2,7 @@
 {% block content %}
 <h1>WatchBox</h1>
 <p class="total">{{ format_price(total) }}</p>
-<p class="muted">{{ priced_count }} priced · median eBay asking price</p>
+<p class="muted">{{ priced_count }} priced · {{ source_label }}</p>
 
 <section>
   {% for w in watches %}
@@ -14,7 +14,7 @@
     </div>
     <div class="price">
       {% if w.price_usd is not none %}
-        {{ format_price(w.price_usd) }}<small>{{ w.sample_size }} listings · {{ time_ago(w.fetched_at) }}</small>
+        {{ format_price(w.price_usd) }}<small>{% if w.price_source == "ebay" %}{{ w.sample_size }} listings · {% endif %}{{ time_ago(w.fetched_at) }}</small>
       {% else %}
         <span class="muted">no price yet</span>
       {% endif %}

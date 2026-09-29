@@ -108,7 +108,7 @@ def test_refresh_now_reprices_everything(client, provider):
 def test_missing_provider_shows_banner(tmp_path):
     settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=6, db_path=str(tmp_path / "t.db"))
     with TestClient(create_app(settings, None, run_scheduler=False)) as c:
-        assert "eBay keys missing" in c.get("/").text
+        assert "No price source configured" in c.get("/").text
         assert c.post("/watches", data={"brand": "Rolex", "model": "Sub", "reference": "1", "slot": "", "nickname": ""},
                       follow_redirects=False).status_code == 303
 
@@ -150,3 +150,22 @@ def test_lifespan_cancels_scheduler_task_cleanly(tmp_path, provider):
     with TestClient(create_app(settings, provider, run_scheduler=True)) as c:
         c.get("/api/display")
     # If the scheduler task wasn't cancelled and awaited cleanly, this would raise or hang.
+
+
+class WatchApiLikeProvider(FakeProvider):
+    source = "thewatchapi"
+
+    def get_price(self, brand, reference):
+        self.calls.append(reference)
+        return PriceResult(13400.0, 5, "thewatchapi")
+
+
+def test_index_labels_thewatchapi_prices_without_listing_counts(tmp_path):
+    settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path=str(tmp_path / "t.db"))
+    with TestClient(create_app(settings, WatchApiLikeProvider({}), run_scheduler=False)) as c:
+        c.post("/watches", data={"brand": "Rolex", "model": "Submariner", "reference": "126610LN", "slot": "1",
+                                 "nickname": ""}, follow_redirects=False)
+        page = c.get("/").text
+        assert "TheWatchAPI" in page
+        assert "listings" not in page
+        assert "$13,400" in page
