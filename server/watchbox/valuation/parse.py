@@ -12,8 +12,14 @@ JUNK_PHRASES = (
     # not working, not genuine, or not as the factory made it
     "for parts", "parts only", "for repair", "needs repair", "repair only", "replica", "homage",
     "custom", "customized", "custom made", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd",
-    "dlc", "diamond", "diamonds", "sapphires", "gem set",
+    "dlc",
 )
+# Aftermarket gem work. Factory gem-set models are told apart by their reference suffix, so these phrases only
+# count when the watch being valued is not itself gem-set.
+GEM_PHRASES = ("diamond", "diamonds", "sapphires", "gem set")
+GEM_SET_SUFFIXES = ("rbr", "sabr", "saru", "rbow", "tbr", "sats", "sa")
+DEALER_WARRANTY_RE = re.compile(
+    r"(?<![a-z0-9])((\d+|one|two|three|five)[\s-]*(years?|yrs?|months?)|lifetime)\s+warranty(?![a-z0-9])")
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
                     "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
@@ -34,14 +40,19 @@ def _has(text: str, phrase: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", text) is not None
 
 
-def is_junk(title: str | None) -> bool:
+def is_junk(title: str | None, reference: str | None = None) -> bool:
     t = (title or "").lower()
-    return any(_has(t, p) for p in JUNK_PHRASES)
+    if any(_has(t, p) for p in JUNK_PHRASES):
+        return True
+    if norm(reference).endswith(GEM_SET_SUFFIXES):
+        return False
+    return any(_has(t, p) for p in GEM_PHRASES)
 
 
 def reference_matches(reference: str | None, *texts: str | None) -> bool:
     """True if the reference appears in any text, tolerating spaces, dashes, dots and slashes inside it but not
-    extra digits around it ("16610LN" must not match "116610LN")."""
+    extra digits around it ("16610LN" must not match "116610LN"). A suffix-less reference (e.g. "116610")
+    intentionally matches all suffixed variants."""
     chars = norm(reference)
     if not chars:
         return False
@@ -60,7 +71,9 @@ def year_from_text(text: str | None) -> int | None:
         if not YEAR_RE.fullmatch(token) or int(token) > this_year:
             continue
         neighbours = tokens[max(0, i - 1):i] + tokens[i + 1:i + 2]
-        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc", "warranty") for n in neighbours):
+        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc") for n in neighbours):
+            continue
+        if i >= 2 and tokens[i - 2].startswith("serv"):  # "serviced in 2022"
             continue
         return int(token)
     return None
@@ -74,8 +87,10 @@ def box_papers_from_title(title: str | None) -> str | None:
         return "full_set"
     box_neg = _has(t, "no box")
     papers_neg = any(_has(t, p) for p in ("no papers", "no paper", "no card", "no warranty"))
+    t = DEALER_WARRANTY_RE.sub(" ", t)  # a dealer's "1 year warranty" is not the Rolex warranty card
     box = _has(t, "box") and not box_neg
-    papers = (_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+    papers = ((_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+              or (_has(t, "warranty") and not _has(t, "no warranty")))
     tokens = re.findall(r"[a-z0-9]+", t)
     if not papers and not _has(t, "no card"):
         for i, token in enumerate(tokens):
@@ -83,7 +98,9 @@ def box_papers_from_title(title: str | None) -> str | None:
                 continue
             near = tokens[max(0, i - 3):i] + tokens[i + 1:i + 4]
             prev = tokens[i - 1] if i else ""
-            if prev in ("warranty", "rolex", "with") or any(n in ("box", "papers", "paper") for n in near):
+            if prev in ("credit", "debit"):
+                continue
+            if prev in ("warranty", "rolex", "with") or YEAR_RE.fullmatch(prev) or any(n in ("box", "papers", "paper") for n in near):
                 papers = True
                 break
     if box and papers:

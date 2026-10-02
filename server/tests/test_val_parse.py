@@ -27,6 +27,17 @@ def test_is_junk(title, junk):
     assert is_junk(title) is junk
 
 
+@pytest.mark.parametrize("title, reference, junk", [
+    ("Rolex Datejust 126284RBR diamond bezel", "126284RBR", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", "116610LN", True),
+    ("Rolex Datejust diamond dial", None, True),
+    ("Rolex Datejust 126284RBR box only", "126284RBR", True),
+    ("Rolex Datejust 126284RBR custom diamond bezel", "126284RBR", True),
+])
+def test_is_junk_allows_gems_only_on_gem_set_references(title, reference, junk):
+    assert is_junk(title, reference) is junk
+
+
 def test_reference_matches_any_text_ignoring_spacing():
     assert reference_matches("116610LN", "2015 116610LN Rolex Submariner like new")
     assert reference_matches("116610LN", "Rolex Submariner Date", "116610 LN")
@@ -70,8 +81,17 @@ def test_year_from_text(text, year):
     ("Rolex 116610LN no box", "watch_only"),
     ("Rolex 116610LN with box, no papers", "box_only"),
     ("Rolex 116610LN no box, papers", "papers_only"),
-    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", None),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", "papers_only"),
     ("Rolex 116610LN with warranty card", "papers_only"),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", "full_set"),
+    ("Rolex 116610LN 2019 Warranty Card", "papers_only"),
+    ("Rolex 116610LN warranty", "papers_only"),
+    ("Rolex 116610LN 1 year warranty", None),
+    ("Rolex 116610LN 2 yr warranty", None),
+    ("Rolex 116610LN 12 month warranty", None),
+    ("Rolex 116610LN lifetime warranty", None),
+    ("Rolex 116610LN pay by credit card or debit card", None),
+    ("Rolex 116610LN box credit card accepted", "box_only"),
     ("2017 Rolex Submariner Date 116610LN Black Dial Oyster Bracelet", None),
 ])
 def test_box_papers_from_title(title, expected):
@@ -104,7 +124,11 @@ def test_condition_from_title(title, expected):
     ("Rolex 116610LN B&P 2015 + 2022 SC", 2015),
     ("Rolex 116610LN 2021 RSC", None),
     ("Rolex 116610LN polished 2019", None),
-    ("Rolex 116610LN warranty 2024", None),
+    ("Rolex 116610LN warranty 2024", 2024),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", 2020),
+    ("Rolex 116610LN 2019 Warranty Card", 2019),
+    ("Rolex 116610LN Serviced in 2022", None),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN", 2018),
     ("Rolex Vintage 1960s Submariner", None),
     ("Rolex 116610LN 2099", None),
 ])

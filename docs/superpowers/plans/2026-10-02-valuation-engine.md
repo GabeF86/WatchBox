@@ -230,6 +230,17 @@ def test_is_junk(title, junk):
     assert is_junk(title) is junk
 
 
+@pytest.mark.parametrize("title, reference, junk", [
+    ("Rolex Datejust 126284RBR diamond bezel", "126284RBR", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", "116610LN", True),
+    ("Rolex Datejust diamond dial", None, True),
+    ("Rolex Datejust 126284RBR box only", "126284RBR", True),
+    ("Rolex Datejust 126284RBR custom diamond bezel", "126284RBR", True),
+])
+def test_is_junk_allows_gems_only_on_gem_set_references(title, reference, junk):
+    assert is_junk(title, reference) is junk
+
+
 def test_reference_matches_any_text_ignoring_spacing():
     assert reference_matches("116610LN", "2015 116610LN Rolex Submariner like new")
     assert reference_matches("116610LN", "Rolex Submariner Date", "116610 LN")
@@ -273,8 +284,17 @@ def test_year_from_text(text, year):
     ("Rolex 116610LN no box", "watch_only"),
     ("Rolex 116610LN with box, no papers", "box_only"),
     ("Rolex 116610LN no box, papers", "papers_only"),
-    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", None),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", "papers_only"),
     ("Rolex 116610LN with warranty card", "papers_only"),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", "full_set"),
+    ("Rolex 116610LN 2019 Warranty Card", "papers_only"),
+    ("Rolex 116610LN warranty", "papers_only"),
+    ("Rolex 116610LN 1 year warranty", None),
+    ("Rolex 116610LN 2 yr warranty", None),
+    ("Rolex 116610LN 12 month warranty", None),
+    ("Rolex 116610LN lifetime warranty", None),
+    ("Rolex 116610LN pay by credit card or debit card", None),
+    ("Rolex 116610LN box credit card accepted", "box_only"),
     ("2017 Rolex Submariner Date 116610LN Black Dial Oyster Bracelet", None),
 ])
 def test_box_papers_from_title(title, expected):
@@ -307,7 +327,11 @@ def test_condition_from_title(title, expected):
     ("Rolex 116610LN B&P 2015 + 2022 SC", 2015),
     ("Rolex 116610LN 2021 RSC", None),
     ("Rolex 116610LN polished 2019", None),
-    ("Rolex 116610LN warranty 2024", None),
+    ("Rolex 116610LN warranty 2024", 2024),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", 2020),
+    ("Rolex 116610LN 2019 Warranty Card", 2019),
+    ("Rolex 116610LN Serviced in 2022", None),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN", 2018),
     ("Rolex Vintage 1960s Submariner", None),
     ("Rolex 116610LN 2099", None),
 ])
@@ -404,8 +428,14 @@ JUNK_PHRASES = (
     # not working, not genuine, or not as the factory made it
     "for parts", "parts only", "for repair", "needs repair", "repair only", "replica", "homage",
     "custom", "customized", "custom made", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd",
-    "dlc", "diamond", "diamonds", "sapphires", "gem set",
+    "dlc",
 )
+# Aftermarket gem work. Factory gem-set models are told apart by their reference suffix, so these phrases only
+# count when the watch being valued is not itself gem-set.
+GEM_PHRASES = ("diamond", "diamonds", "sapphires", "gem set")
+GEM_SET_SUFFIXES = ("rbr", "sabr", "saru", "rbow", "tbr", "sats", "sa")
+DEALER_WARRANTY_RE = re.compile(
+    r"(?<![a-z0-9])((\d+|one|two|three|five)[\s-]*(years?|yrs?|months?)|lifetime)\s+warranty(?![a-z0-9])")
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
                     "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
@@ -426,14 +456,19 @@ def _has(text: str, phrase: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", text) is not None
 
 
-def is_junk(title: str | None) -> bool:
+def is_junk(title: str | None, reference: str | None = None) -> bool:
     t = (title or "").lower()
-    return any(_has(t, p) for p in JUNK_PHRASES)
+    if any(_has(t, p) for p in JUNK_PHRASES):
+        return True
+    if norm(reference).endswith(GEM_SET_SUFFIXES):
+        return False
+    return any(_has(t, p) for p in GEM_PHRASES)
 
 
 def reference_matches(reference: str | None, *texts: str | None) -> bool:
     """True if the reference appears in any text, tolerating spaces, dashes, dots and slashes inside it but not
-    extra digits around it ("16610LN" must not match "116610LN")."""
+    extra digits around it ("16610LN" must not match "116610LN"). A suffix-less reference (e.g. "116610")
+    intentionally matches all suffixed variants."""
     chars = norm(reference)
     if not chars:
         return False
@@ -452,7 +487,9 @@ def year_from_text(text: str | None) -> int | None:
         if not YEAR_RE.fullmatch(token) or int(token) > this_year:
             continue
         neighbours = tokens[max(0, i - 1):i] + tokens[i + 1:i + 2]
-        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc", "warranty") for n in neighbours):
+        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc") for n in neighbours):
+            continue
+        if i >= 2 and tokens[i - 2].startswith("serv"):  # "serviced in 2022"
             continue
         return int(token)
     return None
@@ -466,8 +503,10 @@ def box_papers_from_title(title: str | None) -> str | None:
         return "full_set"
     box_neg = _has(t, "no box")
     papers_neg = any(_has(t, p) for p in ("no papers", "no paper", "no card", "no warranty"))
+    t = DEALER_WARRANTY_RE.sub(" ", t)  # a dealer's "1 year warranty" is not the Rolex warranty card
     box = _has(t, "box") and not box_neg
-    papers = (_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+    papers = ((_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+              or (_has(t, "warranty") and not _has(t, "no warranty")))
     tokens = re.findall(r"[a-z0-9]+", t)
     if not papers and not _has(t, "no card"):
         for i, token in enumerate(tokens):
@@ -475,7 +514,9 @@ def box_papers_from_title(title: str | None) -> str | None:
                 continue
             near = tokens[max(0, i - 3):i] + tokens[i + 1:i + 4]
             prev = tokens[i - 1] if i else ""
-            if prev in ("warranty", "rolex", "with") or any(n in ("box", "papers", "paper") for n in near):
+            if prev in ("credit", "debit"):
+                continue
+            if prev in ("warranty", "rolex", "with") or YEAR_RE.fullmatch(prev) or any(n in ("box", "papers", "paper") for n in near):
                 papers = True
                 break
     if box and papers:
@@ -629,7 +670,7 @@ def metal_from_c24(text: str | None) -> str | None:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_parse.py -q`
-Expected: `79 passed` (counting each parametrized case).
+Expected: `97 passed` (counting each parametrized case).
 
 - [ ] **Step 5: Commit**
 
@@ -1527,7 +1568,7 @@ from .parse import is_junk
 
 def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool = False,
           failed_sources: tuple[str, ...] = ()) -> Valuation | None:
-    usable = [c for c in comps if c.price_usd > 0 and not is_junk(c.title)]
+    usable = [c for c in comps if c.price_usd > 0 and not is_junk(c.title, query.reference)]
     tier, chosen = select_tier(usable, query)
     if not chosen:
         return None
@@ -2674,7 +2715,7 @@ def main() -> None:
           f"year {q.year or '?'}, dial {q.dial or '?'}, bracelet {q.bracelet or '?'}, metal {q.metal or '?'}")
     print(f"{len(comps)} stored comparables\n")
     for c in sorted(comps, key=lambda c: (c.source, c.price_usd)):
-        reason = ("junk" if is_junk(c.title) else "best offer" if c.best_offer
+        reason = ("junk" if is_junk(c.title, q.reference) else "best offer" if c.best_offer
                   else "tier 1" if in_tier(c, q, 1) else "tier 2" if in_tier(c, q, 2)
                   else "tier 3" if in_tier(c, q, 3) else "no match")
         print(f"  {c.source:<8} ${c.price_usd:>9,.0f}  {reason:<10} {c.box_papers or '-':<11} "
