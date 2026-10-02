@@ -103,3 +103,45 @@ def test_fewer_than_three_comparables_returns_none():
 def test_estimate_rounds_half_up():
     v = value(SUB, [comp(10005.0) for _ in range(6)])
     assert v.estimate_usd == 10010.0
+
+
+DATEJUST = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue")
+DJ = "Rolex Datejust 41 126334"
+
+
+def test_thin_source_is_widened_but_exact_ebay_sales_are_kept():
+    from dataclasses import replace
+    comps = [comp(13000.0 + i, title=DJ, dial="blue") for i in range(6)]
+    comps += [comp(11000.0 + i, title=DJ, dial="black") for i in range(10)]
+    comps += [comp(12000.0 + i, source="chrono24", title=DJ, dial="black") for i in range(10)]
+    comps += [comp(14000.0, source="chrono24", title=DJ, dial="blue")]
+    v = value(DATEJUST, comps)
+    assert v.n_ebay == 6 and v.n_c24 >= 10
+    assert v.factors["widened"] == ["chrono24"] and "dial" in v.factors["detail"]
+    assert v.confidence != "high"
+    assert v.estimate_usd > value(replace(DATEJUST, dial="black"), comps).estimate_usd
+
+
+def test_many_exact_sales_are_not_diluted_by_a_thin_source():  # review case A
+    comps = [comp(11500.0 + i, title=DJ, dial="blue") for i in range(20)]
+    comps += [comp(10000.0 + i, title=DJ, dial="black") for i in range(10)]
+    comps += [comp(12500.0 + i, source="chrono24", title=DJ, dial="blue") for i in range(4)]
+    comps += [comp(11000.0 + i, source="chrono24", title=DJ, dial="black") for i in range(2)]
+    v = value(DATEJUST, comps)
+    assert v.n_ebay == 20 and v.ebay_min >= 11500.0
+
+
+def test_no_widening_when_the_detail_effect_cannot_be_measured():  # review case C
+    comps = [comp(10000.0 + i, title=DJ, dial="black") for i in range(10)]
+    comps += [comp(13000.0 + i, source="chrono24", title=DJ, dial="blue") for i in range(10)]
+    v = value(DATEJUST, comps)
+    assert v.n_ebay == 0 and v.factors["widened"] == []
+
+
+def test_metal_is_never_relaxed():  # review case M
+    q = WatchQuery(brand="Rolex", model="Datejust 41", dial="blue", metal="steel")
+    comps = [comp(11000.0 + i, title="Rolex Datejust 41", dial="blue", metal="steel") for i in range(3)]
+    comps += [comp(10000.0 + i, title="Rolex Datejust 41", dial="black", metal="steel") for i in range(3)]
+    comps += [comp(16000.0 + i, title="Rolex Datejust 41", dial="blue", metal="two_tone") for i in range(10)]
+    v = value(q, comps)
+    assert v.estimate_usd < 12500

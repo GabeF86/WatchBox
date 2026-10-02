@@ -292,3 +292,17 @@ server/scripts/check_valuation.py   # full breakdown for one watch
 - If a source keeps failing, its older comparables are kept and still used; the valuation lists that source as unavailable.
 - If you switch from the engine back to a v0 source, an older engine valuation can hide the newer v0 price, because the latest valuation wins over prices.
 - Per-watch refreshes on add or edit don't take the refresh-all lock, so they can overlap a scheduled refresh of the same watch (the result is still checked against the watch before it's stored).
+
+## Update 2026-10-02: per-source widening for thin dial and bracelet matches
+
+- **Tier 2 still requires the metal.** It now means "same reference (or brand + model) and compatible metal, any dial or bracelet". Metal is never relaxed, because gold versus steel is too large to adjust for. A listing with an unknown metal is neutral. Tier 3 stays the loose fallback.
+- **Per-source widening.** When tier 1 is chosen and the owner set a dial or bracelet, each source is checked on its own. A source with fewer than 5 exact matches, but 5 or more at tier 2, is widened to its tier-2 listings. This happens only when every detail that thins that source has a learnable price factor. Other sources keep their exact matches. Widened sources are recorded in `factors["widened"]`, and confidence is capped at medium.
+- **Detail factors.** For each detail the owner set (dial, bracelet), the factor is the median baseline price of listings with that value, divided by the median for listings with a different *known* value. It's measured within each source and pooled, weighted by the smaller group. It needs at least 3 listings in each group, is shrunk toward 1.0 as `(n·m + 10)/(n + 10)`, and is kept within 0.85–1.20.
+  - The factor applies only to listings with a different known value. Listings that don't state the detail stay neutral, as in tier 1.
+  - It is also used in the asking-to-sold gap and the backtest, so the estimate, the gap and the backtest all use the same adjusted prices.
+  - Tier-2 and tier-3 fallbacks use the same factors.
+- **Real data (Datejust 41 126334, blue):** the 6 exact blue eBay sales are kept. Chrono24 widens from 1 to 32 listings, with a learned blue factor of 0.984. The estimate is $13,760, medium. The Submariner 116610LN is unchanged ($11,720, tier 1, high).
+- **Review cases covered by tests:**
+  - 20 exact eBay sales are not diluted by 2 off-dial Chrono24 listings.
+  - Nothing is widened when the detail's effect can't be measured.
+  - Metal is never relaxed.

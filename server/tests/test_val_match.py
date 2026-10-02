@@ -62,3 +62,13 @@ def test_iqr_mask_matches_trim_iqr():
     from watchbox.valuation.match import iqr_mask
     assert iqr_mask([10, 11, 12, 13, 100]) == [True, True, True, True, False]
     assert iqr_mask([10, 100, 1000]) == [True, True, True]
+
+
+
+def test_tier2_ignores_dial_and_bracelet_but_not_metal():
+    q = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue", metal="steel")
+    title = "Rolex Datejust 41 126334"
+    assert in_tier(comp(title, dial="black", metal="steel"), q, 2)
+    assert in_tier(comp(title, dial="black"), q, 2)  # unknown metal is neutral
+    assert not in_tier(comp(title, metal="two_tone"), q, 2)
+    assert not in_tier(comp(title, metal="two_tone"), q, 3)  # metal is never relaxed

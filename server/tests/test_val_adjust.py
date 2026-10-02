@@ -1,6 +1,7 @@
 import pytest
 
-from watchbox.valuation.adjust import BOX_PRIOR, COND_PRIOR, Factors, adjust_price, learn_factors
+from watchbox.valuation.adjust import (BOX_PRIOR, COND_PRIOR, Factors, adjust_price, detail_adjust, learn_detail_factors,
+                                       learn_factors)
 from watchbox.valuation.models import Comparable, WatchQuery
 
 
@@ -40,3 +41,35 @@ def test_learned_factor_is_clamped_and_needs_enough_data():
     assert learn_factors(comps).box["watch_only"] == pytest.approx(0.75)  # prior 0.85 - 0.10
     few = [comp(10000.0, "full_set")] * 5 + [comp(8000.0, "watch_only")] * 2
     assert learn_factors(few).box["watch_only"] == BOX_PRIOR["watch_only"]
+
+
+def dcomp(price, dial=None, bracelet=None, source="ebay"):
+    return Comparable(source=source, kind="sold", price_usd=price, date=None, title="Rolex 126334",
+                      dial=dial, bracelet=bracelet)
+
+
+PRIORS = Factors(dict(BOX_PRIOR), dict(COND_PRIOR), {})
+BLUE = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue")
+
+
+def test_detail_factor_measures_dial_premium_and_shrinks():
+    comps = [dcomp(12000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5
+    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 3) / 8)
+
+
+def test_detail_factor_needs_enough_data_and_is_clamped():
+    assert learn_detail_factors([dcomp(12000.0, "blue")] * 2 + [dcomp(10000.0, "black")] * 5, BLUE, PRIORS) == {}
+    big = [dcomp(30000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5
+    assert learn_detail_factors(big, BLUE, PRIORS)["dial"] == pytest.approx(1.20)
+
+
+def test_detail_adjust_applies_only_to_listings_with_a_different_known_detail():
+    detail = {"dial": 1.1}
+    assert detail_adjust(dcomp(10000.0, "blue"), BLUE, detail) == 1.0
+    assert detail_adjust(dcomp(10000.0, "black"), BLUE, detail) == pytest.approx(1.1)
+    assert detail_adjust(dcomp(10000.0, None), BLUE, detail) == 1.0  # unknown is neutral, as in tier 1
+
+
+def test_detail_factor_ignores_listings_with_unknown_detail():
+    comps = [dcomp(12000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5 + [dcomp(50000.0)] * 5
+    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 3) / 8)

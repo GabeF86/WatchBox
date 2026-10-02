@@ -25,12 +25,17 @@ def _details_match(c: Comparable, q: WatchQuery) -> bool:
     return all(getattr(c, f) is None or getattr(c, f) == getattr(q, f) for f in DETAIL_FIELDS if getattr(q, f))
 
 
+def metal_compatible(c: Comparable, q: WatchQuery) -> bool:
+    """Metal is never relaxed: gold vs steel is too big a difference to adjust for. Unknown is neutral."""
+    return not q.metal or c.metal is None or c.metal == q.metal
+
+
 def in_tier(c: Comparable, q: WatchQuery, tier: int) -> bool:
     if tier == 1:
         return _base_match(c, q) and _details_match(c, q)
-    if tier == 2:
-        return _base_match(c, q)
-    return _base_match(c, q) or _brand_model_match(c, q)
+    if tier == 2:  # same reference (or brand + model) and metal; any dial or bracelet
+        return _base_match(c, q) and metal_compatible(c, q)
+    return (_base_match(c, q) or _brand_model_match(c, q)) and metal_compatible(c, q)
 
 
 def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:

@@ -63,3 +63,16 @@ def test_backtest_identical_prices_are_perfect():
 def test_backtest_reports_known_error():
     n, mdape, within10 = backtest([sold(100.0)] * 5 + [sold(150.0)], PRIORS)
     assert n == 6 and mdape == 0.0 and within10 == pytest.approx(5 / 6)
+
+
+
+def test_widened_match_caps_confidence_at_medium():
+    assert confidence(1, 30, 0.10, 0.03, False, False, widened=True) == "medium"
+
+
+def test_backtest_applies_detail_multiplier():
+    blue = [Comparable(source="ebay", kind="sold", price_usd=11000.0, date=None, title="x", dial="blue")] * 3
+    black = [Comparable(source="ebay", kind="sold", price_usd=10000.0, date=None, title="x", dial="black")] * 3
+    m = lambda c: 1.1 if c.dial == "black" else 1.0  # noqa: E731
+    n, mdape, within10 = backtest(blue + black, PRIORS, multiplier=m)
+    assert n == 6 and mdape == pytest.approx(0.0)
