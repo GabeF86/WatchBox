@@ -3,8 +3,9 @@ import asyncio
 import contextlib
 import logging
 import re
+import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
@@ -17,12 +18,15 @@ from . import db, refresh
 from .config import Settings
 from .display import build_screens, format_price, time_ago
 from .pricing import PriceProvider
+from .valuation.models import BOX_PAPERS, BRACELETS, CONDITIONS, DIALS, METALS, label
 
 log = logging.getLogger("watchbox.app")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 SLOTS = range(1, 9)
-SOURCE_LABELS = {"thewatchapi": "TheWatchAPI asking prices", "ebay": "median eBay asking price"}
+SOURCE_LABELS = {"thewatchapi": "TheWatchAPI asking prices", "ebay": "median eBay asking price",
+                 "comps": "estimated from eBay sales + Chrono24"}
 FormStr = Annotated[str, Form()]
+_refresh_lock = threading.Lock()  # the scheduler and the "refresh all" button must not overlap
 
 
 def parse_slot(raw: str) -> int | None:
@@ -44,9 +48,51 @@ def validate_required(brand: str, model: str) -> None:
         raise ValueError("Brand and model are required")
 
 
+def parse_year(raw: str) -> int | None:
+    raw = raw.strip()
+    if not raw:
+        return None
+    this_year = date.today().year
+    if not (raw.isascii() and raw.isdigit()) or not 1900 <= int(raw) <= this_year:
+        raise ValueError(f"Year must be between 1900 and {this_year}")
+    return int(raw)
+
+
+def parse_choice(raw: str, allowed: tuple[str, ...], name: str, default: str | None = None) -> str | None:
+    raw = raw.strip()
+    if not raw:
+        return default
+    if raw not in allowed:
+        raise ValueError(f"Unknown {name}: {raw}")
+    return raw
+
+
+def parse_details(year: str, condition: str, box_papers: str, dial: str, bracelet: str, metal: str) -> dict:
+    return {
+        "year": parse_year(year),
+        "condition": parse_choice(condition, CONDITIONS, "condition", "excellent"),
+        "box_papers": parse_choice(box_papers, BOX_PAPERS, "box & papers option", "full_set"),
+        "dial": parse_choice(dial, DIALS, "dial color"),
+        "bracelet": parse_choice(bracelet, BRACELETS, "bracelet"),
+        "metal": parse_choice(metal, METALS, "case metal"),
+    }
+
+
 def redirect(path: str, error: str | None = None) -> RedirectResponse:
     url = f"{path}?error={quote(error)}" if error else path
     return RedirectResponse(url, status_code=303)
+
+
+def run_exclusive(lock: threading.Lock, fn) -> bool:
+    """Runs fn unless another holder of lock is already running; returns whether it ran."""
+    if not lock.acquire(blocking=False):
+        log.info("refresh already running; skipping")
+        return False
+    try:
+        fn()
+    finally:
+        lock.release()
+    return True
 
 
 async def run_scheduled(fn) -> None:
@@ -81,16 +127,21 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def refresh_everything() -> None:
         if provider is None:
             return
-        conn = db.connect(settings.db_path)
-        try:
-            refresh.refresh_all(conn, provider)
-        finally:
-            conn.close()
+
+        def run() -> None:
+            conn = db.connect(settings.db_path)
+            try:
+                refresh.refresh_all(conn, provider)
+            finally:
+                conn.close()
+
+        run_exclusive(_refresh_lock, run)
 
     def check_and_refresh_if_stale() -> None:
         conn = db.connect(settings.db_path)
         try:
-            stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours, datetime.now(timezone.utc))
+            stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours,
+                                          datetime.now(timezone.utc))
         finally:
             conn.close()
         if stale:
@@ -111,31 +162,38 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    app = FastAPI(title="WatchBox v0", lifespan=lifespan)
+    app = FastAPI(title="WatchBox", lifespan=lifespan)
 
     def render(request: Request, name: str, **context) -> HTMLResponse:
         context |= {"format_price": format_price, "time_ago": time_ago, "slots": SLOTS,
                     "has_provider": provider is not None,
-                    "source_label": SOURCE_LABELS.get(getattr(provider, "source", None), "asking prices")}
+                    "source_label": SOURCE_LABELS.get(getattr(provider, "source", None), "asking prices"),
+                    "label": label, "conditions": CONDITIONS, "box_papers_options": BOX_PAPERS, "dials": DIALS,
+                    "bracelets": BRACELETS, "metals": METALS}
         return templates.TemplateResponse(request, name, context)
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, conn: Conn, error: str | None = None):
         watches = db.list_watches(conn)
         priced = [w for w in watches if w.price_usd is not None]
-        return render(request, "index.html", watches=watches, total=sum(w.price_usd for w in priced),
-                      priced_count=len(priced), error=error, fw=None, action="/watches", submit_label="Add watch")
+        return render(request, "index.html", watches=watches, valuations=db.latest_valuations(conn),
+                      total=sum(w.price_usd for w in priced), priced_count=len(priced), error=error, fw=None,
+                      action="/watches", submit_label="Add watch")
 
     @app.post("/watches")
-    def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr, reference: FormStr,
-                     slot: FormStr = "", nickname: FormStr = "", price_reference: FormStr = ""):
+    def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr,
+                     reference: FormStr = "", slot: FormStr = "", nickname: FormStr = "",
+                     price_reference: FormStr = "", year: FormStr = "", condition: FormStr = "",
+                     box_papers: FormStr = "", dial: FormStr = "", bracelet: FormStr = "", metal: FormStr = ""):
         try:
             validate_required(brand, model)
-            validate_reference(reference)
+            if reference.strip():
+                validate_reference(reference)
             if price_reference.strip():
                 validate_reference(price_reference)
+            details = parse_details(year, condition, box_papers, dial, bracelet, metal)
             watch_id = db.add_watch(conn, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
-                                    nickname.strip() or None, price_reference.strip() or None)
+                                    nickname.strip() or None, price_reference.strip() or None, **details)
         except (ValueError, db.SlotTakenError) as e:
             return redirect("/", str(e))
         background.add_task(refresh_one, watch_id)
@@ -151,19 +209,31 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
 
     @app.post("/watches/{watch_id}")
     def update_watch(watch_id: int, background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr,
-                     reference: FormStr, slot: FormStr = "", nickname: FormStr = "", price_reference: FormStr = ""):
-        if db.get_watch(conn, watch_id) is None:
+                     reference: FormStr = "", slot: FormStr = "", nickname: FormStr = "",
+                     price_reference: FormStr = "", year: FormStr = "", condition: FormStr = "",
+                     box_papers: FormStr = "", dial: FormStr = "", bracelet: FormStr = "", metal: FormStr = ""):
+        before = db.get_watch(conn, watch_id)
+        if before is None:
             raise HTTPException(404, "Watch not found")
         try:
             validate_required(brand, model)
-            validate_reference(reference)
+            if reference.strip():
+                validate_reference(reference)
             if price_reference.strip():
                 validate_reference(price_reference)
+            details = parse_details(year, condition, box_papers, dial, bracelet, metal)
             db.update_watch(conn, watch_id, brand.strip(), model.strip(), reference.strip(), parse_slot(slot),
-                            nickname.strip() or None, price_reference.strip() or None)
+                            nickname.strip() or None, price_reference.strip() or None, **details)
         except (ValueError, db.SlotTakenError) as e:
             return redirect(f"/watches/{watch_id}/edit", str(e))
-        background.add_task(refresh_one, watch_id)
+        after = db.get_watch(conn, watch_id)
+        if before.priced_as != after.priced_as or not hasattr(provider, "recompute"):
+            background.add_task(refresh_one, watch_id)
+        else:
+            try:  # only details changed: re-value from stored comparables
+                provider.recompute(conn, watch_id)
+            except Exception:
+                log.exception("recompute failed for watch %s", watch_id)
         return redirect("/")
 
     @app.post("/watches/{watch_id}/delete")

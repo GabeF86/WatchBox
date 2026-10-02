@@ -108,7 +108,7 @@ def test_refresh_now_reprices_everything(client, provider):
 def test_missing_provider_shows_banner(tmp_path):
     settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=6, db_path=str(tmp_path / "t.db"))
     with TestClient(create_app(settings, None, run_scheduler=False)) as c:
-        assert "No price source configured" in c.get("/").text
+        assert "No price source configured: add APIFY_TOKEN" in c.get("/").text
         assert c.post("/watches", data={"brand": "Rolex", "model": "Sub", "reference": "1", "slot": "", "nickname": ""},
                       follow_redirects=False).status_code == 303
 
@@ -181,3 +181,15 @@ def test_price_reference_field_is_used_and_shown(client, provider):
     assert "estimated from 2-39-47-06-02-04" in page
     assert client.get("/watches/1/edit").text.count('value="2-39-47-06-02-04"') == 1
     assert client.get("/api/display").json()["screens"][1]["line2"].startswith("~$6,779")
+
+
+def test_run_exclusive_skips_when_already_running():
+    import threading
+
+    from watchbox.app import run_exclusive
+    lock, calls = threading.Lock(), []
+    assert run_exclusive(lock, lambda: calls.append(1)) is True
+    assert not lock.locked()
+    with lock:
+        assert run_exclusive(lock, lambda: calls.append(2)) is False
+    assert calls == [1]

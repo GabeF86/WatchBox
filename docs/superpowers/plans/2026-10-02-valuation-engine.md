@@ -221,10 +221,26 @@ def test_norm_strips_punctuation_and_accents():
     ("Rolex 116610LN box only", True),
     ("Rolex Submariner for parts or repair", True),
     ("Rolex Submariner Date 116610LN Black Ceramic Bezel", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", True),
+    ("Rolex Datejust customized with diamonds", True),
+    ("Rolex Datejust gem set bezel", True),
     ("Customer favorite Rolex 116610LN", False),
 ])
 def test_is_junk(title, junk):
     assert is_junk(title) is junk
+
+
+@pytest.mark.parametrize("title, reference, junk", [
+    ("Rolex Datejust 126284RBR diamond bezel", "126284RBR", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", "116610LN", True),
+    ("Rolex Datejust diamond dial", None, True),
+    ("Rolex 126284RBR diamond bezel", "126284RBR-0011", False),
+    ("Rolex Datejust 126284RBR box only", "126284RBR-0011", True),
+    ("Rolex Datejust 126284RBR box only", "126284RBR", True),
+    ("Rolex Datejust 126284RBR custom diamond bezel", "126284RBR", True),
+])
+def test_is_junk_allows_gems_only_on_gem_set_references(title, reference, junk):
+    assert is_junk(title, reference) is junk
 
 
 def test_reference_matches_any_text_ignoring_spacing():
@@ -232,6 +248,17 @@ def test_reference_matches_any_text_ignoring_spacing():
     assert reference_matches("116610LN", "Rolex Submariner Date", "116610 LN")
     assert not reference_matches("116610LN", "Rolex Submariner Date", "126610LN")
     assert not reference_matches("", "anything")
+
+
+@pytest.mark.parametrize("ref, text, expected", [
+    ("16610LN", "Rolex 116610LN", False),
+    ("1680", "Rolex 16800", False),
+    ("116610LN", "Submariner 40 116610LN", True),
+    ("116610LN", "Rolex 116610 LN", True),
+    ("2-39-47-01-01-04", "Glash\u00fctte 2-39-47-01-01-04 Sixties", True),
+])
+def test_reference_matches_respects_digit_boundaries(ref, text, expected):
+    assert reference_matches(ref, text) is expected
 
 
 @pytest.mark.parametrize("text, year", [
@@ -251,6 +278,28 @@ def test_year_from_text(text, year):
     ("#80 Rolex Submariner Date 40mm Black Dial 116610LN 2013 Papers", "papers_only"),
     ("116610LN With Box Steel 40mm Black Dial", "box_only"),
     ("Rolex 116610LN no box no papers", "watch_only"),
+    ("2020 Rolex Submariner Date 116610LN 40mm Black Ceramic Stainless Steel Box Paper", "full_set"),
+    ("Rolex Submariner Date 116610LN 40MM Black Oyster Steel Box Paper", "full_set"),
+    ("Rolex 116610LN B+P", "full_set"),
+    ("Rolex 116610LN no box no card", "watch_only"),
+    ("Rolex 116610LN 1 year warranty, pay by credit card", None),
+    ("Rolex 116610LN no box", "watch_only"),
+    ("Rolex 116610LN with box, no papers", "box_only"),
+    ("Rolex 116610LN no box, papers", "papers_only"),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", "papers_only"),
+    ("Rolex 116610LN with warranty card", "papers_only"),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", "full_set"),
+    ("Rolex 116610LN 2019 Warranty Card", "papers_only"),
+    ("Rolex 116610LN warranty", "papers_only"),
+    ("Rolex 116610LN 1 year warranty", None),
+    ("Rolex 116610LN 2 yr warranty", None),
+    ("Rolex 116610LN 5 year warranty 2020", "papers_only"),
+    ("Rolex 116610LN 15 year warranty", None),
+    ("Rolex 116610LN 5 month warranty", None),
+    ("Rolex 116610LN 12 month warranty", None),
+    ("Rolex 116610LN lifetime warranty", None),
+    ("Rolex 116610LN pay by credit card or debit card", None),
+    ("Rolex 116610LN box credit card accepted", "box_only"),
     ("2017 Rolex Submariner Date 116610LN Black Dial Oyster Bracelet", None),
 ])
 def test_box_papers_from_title(title, expected):
@@ -263,9 +312,36 @@ def test_box_papers_from_title(title, expected):
     ("New Rolex Submariner 116610LN 40mm", "new"),
     ("Unworn Submariner NOS Full Stickers 114060", "new"),
     ("2017 Rolex Submariner Date 116610LN", None),
+    ("Rolex 116610LN with new strap", None),
+    ("Rolex 116610LN new service just done", None),
+    ("Rolex 116610LN not new", None),
+    ("New York dealer Rolex 116610LN", None),
+    ("New strap Rolex 116610LN", None),
+    ("Rolex 116610LN BNIB sealed", "new"),
+    ("Rolex 116610LN brand new", "new"),
+    ("Rolex 116610LN new old stock", "new"),
+    ("Rolex 116610LN new with tags", "new"),
 ])
 def test_condition_from_title(title, expected):
     assert condition_from_title(title) == expected
+
+
+@pytest.mark.parametrize("text, year", [
+    ("EXCELLENT ROLEX Submariner 116610LN CARD & BOX SERVICED 2023!", None),
+    ("EXCELLENT ROLEX Submariner 116610LN BOX & CARD & 2023 SERVICE CARD!", None),
+    ("Rolex 116610LN B&P 2015 + 2022 SC", 2015),
+    ("Rolex 116610LN 2021 RSC", None),
+    ("Rolex 116610LN polished 2019", None),
+    ("Rolex 116610LN warranty 2024", 2024),
+    ("ROLEX Stainless Steel 40mm Submariner 116610LN Box Warranty 2020 MINTY", 2020),
+    ("Rolex 116610LN 2019 Warranty Card", 2019),
+    ("Rolex 116610LN Serviced in 2022", None),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN", 2018),
+    ("Rolex Vintage 1960s Submariner", None),
+    ("Rolex 116610LN 2099", None),
+])
+def test_year_ignores_service_years_decades_and_future(text, year):
+    assert year_from_text(text) == year
 
 
 def test_dial_bracelet_metal_from_title():
@@ -292,7 +368,9 @@ def test_parse_title_returns_all_detail_keys():
 @pytest.mark.parametrize("text, new, expected", [
     ("Used (very good)", False, "very_good"),
     ("Used (good)", False, "good"),
-    ("Like new & unworn", False, "new"),
+    ("Like new & unworn", False, "excellent"),
+    ("Like new & unworn", True, "new"),
+    ("Unworn", False, "new"),
     ("Used (mint)", False, "excellent"),
     ("Used (fair)", False, "fair"),
     (None, True, "new"),
@@ -344,6 +422,7 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'watchbox.valuation.parse'
 """Reads watch details out of listing titles and Chrono24 spec fields. Pure functions."""
 import re
 import unicodedata
+from datetime import date
 
 from .models import DIALS
 
@@ -353,18 +432,29 @@ JUNK_PHRASES = (
     "crown only", "case back", "instruction manual", "manual only", "booklet",
     # not working, not genuine, or not as the factory made it
     "for parts", "parts only", "for repair", "needs repair", "repair only", "replica", "homage",
-    "custom", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd", "dlc",
+    "custom", "customized", "custom made", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd",
+    "dlc",
 )
+# Aftermarket gem work. Factory gem-set models are told apart by their reference suffix, so these phrases only
+# count when the watch being valued is not itself gem-set.
+GEM_PHRASES = ("diamond", "diamonds", "sapphires", "gem set")
+GEM_SET_RE = re.compile(r"\d(rbr|sabr|saru|rbow|tbr|sats|sa)(?![a-z])")  # tolerates "-0011" bracelet codes
+DEALER_WARRANTY_RE = re.compile(
+    r"(?<![a-z0-9])(((?!5[\s-]*(?:years?|yrs?))\d+|one|two|three)[\s-]*(years?|yrs?|months?)|lifetime)"
+    r"\s+warranty(?![a-z0-9])")  # not 5 years: that is Rolex's own warranty card
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
-                    "full set", "complete set")
+                    "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
 DIAL_RE = re.compile(r"(?<![a-z])(black|blue|white|silver|green|grey|gray|champagne|brown|red)\s+dial")
 STRAP_RE = re.compile(r"(?<![a-z])(oyster|leather|rubber)\s+(bracelet|strap|band)")
 
 
+def _fold(text: str | None) -> str:
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+
+
 def norm(text: str | None) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]", "", ascii_text.lower())
+    return re.sub(r"[^a-z0-9]", "", _fold(text))
 
 
 def _has(text: str, phrase: str) -> bool:
@@ -372,44 +462,95 @@ def _has(text: str, phrase: str) -> bool:
     return re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", text) is not None
 
 
-def is_junk(title: str | None) -> bool:
+def is_junk(title: str | None, reference: str | None = None) -> bool:
     t = (title or "").lower()
-    return any(_has(t, p) for p in JUNK_PHRASES)
+    if any(_has(t, p) for p in JUNK_PHRASES):
+        return True
+    if GEM_SET_RE.search(norm(reference)):
+        return False
+    return any(_has(t, p) for p in GEM_PHRASES)
 
 
 def reference_matches(reference: str | None, *texts: str | None) -> bool:
-    ref = norm(reference)
-    return bool(ref) and any(ref in norm(t) for t in texts if t)
+    """True if the reference appears in any text, tolerating spaces, dashes, dots and slashes inside it but not
+    extra digits around it ("16610LN" must not match "116610LN"). A suffix-less reference (e.g. "116610")
+    intentionally matches all suffixed variants."""
+    chars = norm(reference)
+    if not chars:
+        return False
+    pattern = r"(?<![0-9])" + r"[\s\-./]*".join(re.escape(ch) for ch in chars)
+    if chars[-1].isdigit():
+        pattern += r"(?![0-9])"
+    regex = re.compile(pattern)
+    return any(regex.search(_fold(t)) for t in texts if t)
 
 
 def year_from_text(text: str | None) -> int | None:
-    m = YEAR_RE.search(text or "")
-    return int(m.group(1)) if m else None
+    t = (text or "").lower()
+    tokens = re.findall(r"[a-z0-9]+", t)
+    this_year = date.today().year
+    for i, token in enumerate(tokens):
+        if not YEAR_RE.fullmatch(token) or int(token) > this_year:
+            continue
+        neighbours = tokens[max(0, i - 1):i] + tokens[i + 1:i + 2]
+        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc") for n in neighbours):
+            continue
+        if i >= 2 and tokens[i - 2].startswith("serv"):  # "serviced in 2022"
+            continue
+        return int(token)
+    return None
 
 
 def box_papers_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
-    if _has(t, "watch only") or (_has(t, "no box") and _has(t, "no papers")):
+    if _has(t, "watch only"):
         return "watch_only"
     if any(_has(t, p) for p in FULL_SET_PHRASES):
         return "full_set"
-    box = _has(t, "box") and not _has(t, "no box")
-    papers = (_has(t, "papers") or _has(t, "card") or _has(t, "warranty")) and not _has(t, "no papers")
+    box_neg = _has(t, "no box")
+    papers_neg = any(_has(t, p) for p in ("no papers", "no paper", "no card", "no warranty"))
+    t = DEALER_WARRANTY_RE.sub(" ", t)  # a dealer's "1 year warranty" is not the Rolex warranty card
+    box = _has(t, "box") and not box_neg
+    papers = ((_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+              or (_has(t, "warranty") and not _has(t, "no warranty")))
+    tokens = re.findall(r"[a-z0-9]+", t)
+    if not papers and not _has(t, "no card"):
+        for i, token in enumerate(tokens):
+            if token != "card":
+                continue
+            near = tokens[max(0, i - 3):i] + tokens[i + 1:i + 4]
+            prev = tokens[i - 1] if i else ""
+            if prev in ("credit", "debit"):
+                continue
+            if prev in ("warranty", "rolex", "with") or YEAR_RE.fullmatch(prev) or any(n in ("box", "papers", "paper") for n in near):
+                papers = True
+                break
     if box and papers:
         return "full_set"
     if box:
         return "box_only"
     if papers:
         return "papers_only"
+    if box_neg and not papers:
+        return "watch_only"
     return None
+
+
+NEW_PHRASES = ("unworn", "nos", "new old stock", "bnib", "new with tags")
+NOT_NEW_NEXT = ("strap", "band", "bracelet", "york", "service")
 
 
 def condition_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
     if _has(t, "like new") or _has(t, "mint"):
         return "excellent"
-    if any(_has(t, p) for p in ("unworn", "nos", "brand new", "new old stock", "new")):
-        return "new"
+    if not _has(t, "not new"):
+        if any(_has(t, p) for p in NEW_PHRASES) or re.search(
+                rf"(?<![a-z0-9])brand new(?![a-z0-9])(?!\s+({'|'.join(NOT_NEW_NEXT)}))", t):
+            return "new"
+        tokens = re.findall(r"[a-z0-9]+", t)
+        if tokens[:1] == ["new"] and (len(tokens) < 2 or tokens[1] not in NOT_NEW_NEXT):
+            return "new"
     if _has(t, "excellent"):
         return "excellent"
     return None
@@ -464,8 +605,8 @@ def parse_title(title: str | None) -> dict:
 
 # Chrono24 spec fields --------------------------------------------------------
 
-_C24_CONDITION = (  # order matters: "unworn" before "like new" before "new"; "very good" before "good"
-    ("unworn", "new"), ("like new", "excellent"), ("mint", "excellent"), ("new", "new"),
+_C24_CONDITION = (  # order matters: "like new" before "unworn" before "new"; "very good" before "good"
+    ("like new", "excellent"), ("unworn", "new"), ("mint", "excellent"), ("new", "new"),
     ("very good", "very_good"), ("good", "good"), ("fair", "fair"), ("poor", "fair"), ("incomplete", "fair"),
 )
 _C24_SCOPE = {"WithBoxAndPapers": "full_set", "WithBox": "box_only", "WithPapers": "papers_only",
@@ -535,7 +676,7 @@ def metal_from_c24(text: str | None) -> str | None:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_parse.py -q`
-Expected: `42 passed` (counting each parametrized case).
+Expected: `102 passed` (counting each parametrized case).
 
 - [ ] **Step 5: Commit**
 
@@ -577,7 +718,8 @@ import pytest
 from watchbox.valuation.models import WatchQuery
 from watchbox.valuation.sources.apify import ApifyClient, SourceError
 from watchbox.valuation.sources.chrono24 import ApifyChrono24Source, search_url
-from watchbox.valuation.sources.ebay_sold import ApifyEbaySoldSource, ebay_query, parse_sold_date
+from watchbox.valuation.sources.ebay_sold import (ApifyEbaySoldSource, comparable_from_row, ebay_query,
+                                                  parse_sold_date)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EBAY_ROWS = json.loads((FIXTURES / "ebay_sold_116610ln.json").read_text())
@@ -630,6 +772,31 @@ def test_ebay_query_and_payload():
 def test_parse_sold_date():
     assert parse_sold_date("Sold  Oct 1, 2026") == date(2026, 10, 1)
     assert parse_sold_date(None) is None
+    assert parse_sold_date("Sold  Sep 30, 2026") == date(2026, 9, 30)
+    assert parse_sold_date("Sold  Feb 30, 2026") is None
+
+
+@pytest.mark.parametrize("title, cond, expected", [
+    ("Rolex 116610LN", "Brand New", "new"),
+    ("Rolex 116610LN", "New with tags", "new"),
+    ("Rolex 116610LN", "New without tags", "new"),
+    ("New Rolex 116610LN", "Pre-Owned", None),
+    ("Rolex 116610LN brand new", "Pre-Owned", None),
+    ("Rolex 116610LN mint", "Pre-Owned", "excellent"),
+    ("Rolex 116610LN", "Pre-Owned", None),
+])
+def test_ebay_row_condition_overrides_title(title, cond, expected):
+    row = {"title": title, "priceValue": 10000, "currency": "USD", "condition": cond}
+    assert comparable_from_row(row).condition == expected
+
+
+def test_client_redacts_token_from_errors():
+    def handler(request):
+        return httpx.Response(500, text="oops secret-token leaked")
+
+    with pytest.raises(SourceError) as exc:
+        client(handler).run("memo23/x", {})
+    assert "secret-token" not in str(exc.value) and "***" in str(exc.value)
 
 
 def test_ebay_source_parses_fixture():
@@ -654,7 +821,7 @@ def test_chrono24_source_parses_fixture_details():
     assert first.reference == "126610LN" and "116610LN" in first.title  # mislabelled reference, real one in the title
     assert comps[1].box_papers == "full_set" and comps[1].condition == "very_good"
     assert comps[5].year == 2014  # "2014 (Approximation)"
-    assert comps[10].condition == "new"  # "Like new & unworn"
+    assert comps[10].condition == "excellent"  # "Like new & unworn" (not flagged conditionNew)
 ```
 
 - [ ] **Step 3: Run to verify failure**
@@ -679,6 +846,9 @@ class SourceError(Exception):
 
 
 class ApifyClient:
+    def _redact(self, message: str) -> str:
+        return message.replace(self._token, "***") if self._token else message
+
     def __init__(self, token: str, http: httpx.Client | None = None, timeout_s: int = 300):
         self._token = token
         self._http = http or httpx.Client()
@@ -691,13 +861,13 @@ class ApifyClient:
                                        headers={"Authorization": f"Bearer {self._token}"},
                                        timeout=self._timeout_s + 30)
         except httpx.HTTPError as e:
-            raise SourceError(f"{actor}: request failed ({type(e).__name__})") from None
+            raise SourceError(self._redact(f"{actor}: request failed ({type(e).__name__})")) from None
         if response.status_code not in (200, 201):
             try:
                 message = response.json()["error"]["message"]
             except (ValueError, KeyError, TypeError):
                 message = response.text[:200]
-            raise SourceError(f"{actor}: HTTP {response.status_code} {message}")
+            raise SourceError(self._redact(f"{actor}: HTTP {response.status_code} {message}"))
         try:
             data = response.json()
         except ValueError:
@@ -711,7 +881,7 @@ class ApifyClient:
 ```python
 """eBay sold listings (last 90 days) via the memo23 eBay scraper on Apify."""
 import re
-from datetime import date, datetime
+from datetime import date
 
 from ..models import Comparable, WatchQuery
 from ..parse import parse_title
@@ -719,6 +889,9 @@ from .apify import ApifyClient
 
 ACTOR = "memo23/ebay-search-scraper-ppe"
 WRISTWATCHES = "31387"
+MONTHS = {m: i for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), start=1)}
+NEW_CONDITIONS = ("brand new", "new with tags", "new without tags")
 SOLD_DATE_RE = re.compile(r"([A-Z][a-z]{2}) (\d{1,2}), (\d{4})")
 
 
@@ -733,9 +906,12 @@ def ebay_query(q: WatchQuery) -> str:
 
 def parse_sold_date(text: str | None) -> date | None:
     m = SOLD_DATE_RE.search(text or "")
-    if not m:
+    if not m or m.group(1) not in MONTHS:
         return None
-    return datetime.strptime(f"{m.group(1)} {m.group(2)} {m.group(3)}", "%b %d %Y").date()
+    try:
+        return date(int(m.group(3)), MONTHS[m.group(1)], int(m.group(2)))
+    except ValueError:
+        return None
 
 
 def comparable_from_row(row: dict) -> Comparable | None:
@@ -745,9 +921,15 @@ def comparable_from_row(row: dict) -> Comparable | None:
     if not isinstance(price, (int, float)) or price <= 0 or (row.get("currency") or "USD") != "USD":
         return None
     title = row.get("title") or ""
+    details = parse_title(title)
+    listed = (row.get("condition") or "").strip().lower()
+    if listed in NEW_CONDITIONS:
+        details["condition"] = "new"
+    elif listed and details["condition"] == "new":
+        details["condition"] = None  # eBay lists it as used, so a "new" in the title is not about the watch
     return Comparable(source="ebay", kind="sold", price_usd=float(price), date=parse_sold_date(row.get("soldDate")),
                       title=title, url=row.get("url") or "", best_offer=bool(row.get("bestOfferAccepted")),
-                      **parse_title(title))
+                      **details)
 
 
 class ApifyEbaySoldSource:
@@ -824,7 +1006,7 @@ class ApifyChrono24Source:
 - [ ] **Step 5: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_sources.py -q`
-Expected: `8 passed`
+Expected: `16 passed`
 
 - [ ] **Step 6: Commit**
 
@@ -894,6 +1076,21 @@ def test_prefer_year_keeps_close_years_when_enough():
 def test_trim_iqr():
     assert trim_iqr([10, 11, 12, 13, 100]) == [10, 11, 12, 13]
     assert trim_iqr([10, 100, 1000]) == [10, 100, 1000]
+
+
+def test_trim_iqr_has_minimum_width_so_ties_do_not_collapse():
+    assert len(trim_iqr([100] * 6 + [99, 101])) == 8
+    assert len(trim_iqr([11500] * 7 + [11000, 12000, 12400])) == 10
+
+
+def test_iqr_mask_matches_trim_iqr():
+    from watchbox.valuation.match import iqr_mask
+    assert iqr_mask([10, 11, 12, 13, 100]) == [True, True, True, True, False]
+    assert iqr_mask([10, 100, 1000]) == [True, True, True]
+
+
+def test_tier_3_is_superset_of_tier_2():
+    assert in_tier(comp("Rolex Submariner 116610LN"), Q, 3)  # no "Date", but the reference matches
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -905,13 +1102,14 @@ Expected: FAIL, `ModuleNotFoundError`
 
 ```python
 """Chooses which comparables describe the owner's watch closely enough, and trims outliers."""
-from statistics import quantiles
+from statistics import median, quantiles
 
 from .models import Comparable, WatchQuery
 from .parse import norm, reference_matches
 
 MIN_TIER_COUNT = 5
 YEAR_WINDOW = 3
+MIN_SPREAD = 0.06  # IQR floor, as a share of the median
 DETAIL_FIELDS = ("dial", "bracelet", "metal")
 
 
@@ -935,7 +1133,7 @@ def in_tier(c: Comparable, q: WatchQuery, tier: int) -> bool:
         return _base_match(c, q) and _details_match(c, q)
     if tier == 2:
         return _base_match(c, q)
-    return _brand_model_match(c, q)
+    return _base_match(c, q) or _brand_model_match(c, q)
 
 
 def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:
@@ -957,19 +1155,24 @@ def select_tier(comps: list[Comparable], q: WatchQuery) -> tuple[int, list[Compa
     return best
 
 
-def trim_iqr(values: list[float]) -> list[float]:
+def iqr_mask(values: list[float]) -> list[bool]:
+    """True for each value inside [Q1 - 1.5 IQR, Q3 + 1.5 IQR]; with fewer than 4 values all are kept."""
     if len(values) < 4:
-        return list(values)
+        return [True] * len(values)
     q1, _, q3 = quantiles(values, n=4, method="inclusive")
-    spread = q3 - q1
+    spread = max(q3 - q1, MIN_SPREAD * median(values))  # tied prices must not collapse the sample
     low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
-    return [v for v in values if low <= v <= high]
+    return [low <= v <= high for v in values]
+
+
+def trim_iqr(values: list[float]) -> list[float]:
+    return [v for v, keep in zip(values, iqr_mask(values)) if keep]
 ```
 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_match.py -q`
-Expected: `6 passed`
+Expected: `8 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1020,6 +1223,11 @@ def test_learned_factor_shrinks_toward_prior():
     f = learn_factors(comps)
     assert f.box["watch_only"] == pytest.approx((5 * 0.8 + 10 * 0.85) / 15)
     assert f.learned["box:watch_only"] == pytest.approx(0.8)
+
+
+def test_learned_factor_never_beats_the_better_level():
+    comps = [comp(10000.0, "full_set")] * 5 + [comp(12000.0, "papers_only")] * 5
+    assert learn_factors(comps).box["papers_only"] == 1.0  # shrunk 1.04 is capped at the baseline
 
 
 def test_learned_factor_is_clamped_and_needs_enough_data():
@@ -1085,9 +1293,15 @@ def _measured(comps, attr, value, baseline, other_factor: Callable[[Comparable],
     return sum(r * k for r, k in ratios) / n, n
 
 
-def _shrink(measured: float, n: int, prior: float) -> float:
+def _shrink(measured: float, n: int, prior: float, lo: float | None = None, hi: float | None = None) -> float:
+    """Shrink toward the prior, stay within ±CLAMP of it and within the optional [lo, hi] bounds."""
     blended = (n * measured + SHRINK * prior) / (n + SHRINK)
-    return min(max(blended, prior - CLAMP), prior + CLAMP)
+    value = min(max(blended, prior - CLAMP), prior + CLAMP)
+    if lo is not None:
+        value = max(value, lo)
+    if hi is not None:
+        value = min(value, hi)
+    return value
 
 
 def learn_factors(comps: list[Comparable]) -> Factors:
@@ -1098,7 +1312,7 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "box_papers", value, "full_set", cond_prior)
         if m:
-            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value])
+            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value], hi=1.0)  # never beats a full set
             learned[f"box:{value}"] = m[0]
     box_learned = lambda c: box.get(c.box_papers, 1.0) if c.box_papers else 1.0
     for value in COND_PRIOR:
@@ -1106,7 +1320,9 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "condition", value, "excellent", box_learned)
         if m:
-            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value])
+            # "new" never ranks below excellent; every lower grade never ranks above it
+            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value], lo=1.0 if value == "new" else None,
+                                  hi=None if value == "new" else 1.0)
             learned[f"condition:{value}"] = m[0]
     return Factors(box, cond, learned)
 ```
@@ -1114,7 +1330,7 @@ def learn_factors(comps: list[Comparable]) -> Factors:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_adjust.py -q`
-Expected: `4 passed`
+Expected: `5 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1156,10 +1372,10 @@ def test_percentile_interpolates():
 
 
 def test_asking_gap():
-    assert asking_gap([100] * 5, [110] * 5) == pytest.approx(1 - 100 / 110)
+    assert asking_gap([100] * 5, [110] * 5) == pytest.approx((5 * (1 - 100 / 110) + 10 * 0.07) / 15)
     assert asking_gap([100] * 4, [110] * 5) == 0.07  # too little data
-    assert asking_gap([130] * 5, [100] * 5) == 0.0
-    assert asking_gap([50] * 5, [100] * 5) == 0.20
+    assert asking_gap([130] * 5, [100] * 5) == 0.0  # measured -0.3 shrinks to (5*-0.3+0.7)/15 < 0
+    assert asking_gap([50] * 5, [100] * 5) == 0.20  # (2.5+0.7)/15 = 0.2133, clamped
 
 
 def test_weights():
@@ -1181,6 +1397,12 @@ def test_weights():
 ])
 def test_confidence(args, expected):
     assert confidence(*args) == expected
+
+
+def test_confidence_caps():
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=False) == "medium"
+    assert confidence(1, 12, 0.20, 0.05, False, False, loose_match=True) == "low"
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=True, loose_match=False) == "high"
 
 
 def test_backtest_needs_six_sales():
@@ -1212,6 +1434,7 @@ W_EBAY, W_C24 = 0.7, 0.3
 FULL_WEIGHT_N = 10  # a source gets its full weight from 10 comparables
 DEFAULT_GAP, MAX_GAP = 0.07, 0.20
 MIN_GAP_SAMPLES = 5
+GAP_SHRINK = 10
 LEVELS = ("low", "medium", "high")
 
 
@@ -1226,7 +1449,9 @@ def asking_gap(ebay_baseline: list[float], c24_baseline: list[float]) -> float:
     """How far Chrono24 asking prices sit above eBay sold prices for this watch (0-20%)."""
     if len(ebay_baseline) < MIN_GAP_SAMPLES or len(c24_baseline) < MIN_GAP_SAMPLES:
         return DEFAULT_GAP
-    gap = 1 - median(ebay_baseline) / median(c24_baseline)
+    measured = 1 - median(ebay_baseline) / median(c24_baseline)
+    n = min(len(ebay_baseline), len(c24_baseline))
+    gap = (n * measured + GAP_SHRINK * DEFAULT_GAP) / (n + GAP_SHRINK)  # few samples: stay near the default
     return min(max(gap, 0.0), MAX_GAP)
 
 
@@ -1238,15 +1463,18 @@ def weights(n_ebay: int, n_c24: int) -> tuple[float, float]:
 
 
 def confidence(tier: int, n_total: int, spread: float, mdape: float | None,
-               estimated_reference: bool, degraded: bool) -> str:
+               estimated_reference: bool, degraded: bool,
+               sold_data: bool = True, loose_match: bool = False) -> str:
     if tier <= 2 and n_total >= 10 and spread <= 0.25 and (mdape is None or mdape <= 0.07):
         level = 2
     elif n_total >= 5 and spread <= 0.45:
         level = 1
     else:
         level = 0
-    if estimated_reference:
+    if estimated_reference or not sold_data:  # no eBay sold prices: asking prices only
         level = min(level, 1)
+    if loose_match:  # tier 3 although the owner set a reference
+        level = 0
     if degraded:  # a source failed this time
         level = max(level - 1, 0)
     return LEVELS[level]
@@ -1369,6 +1597,44 @@ def test_failed_source_lowers_confidence():
     assert value(SUB, comps).confidence == "high"
     assert value(SUB, comps, failed_sources=("chrono24",)).confidence == "medium"
     assert value(SUB, comps, estimated_reference=True).confidence == "medium"
+
+
+def test_best_offer_sales_do_not_drive_tier_selection():
+    t1 = [comp(10000.0, best_offer=True, dial="black") for _ in range(5)] + [comp(10000.0, dial="black")]
+    t2 = [comp(10000.0 + i, dial="white") for i in range(6)]
+    v = value(SUB, t1 + t2)
+    assert v.tier == 2 and v.n_ebay >= 6
+
+
+def test_adjusted_outlier_is_dropped_from_counts_and_stats():
+    comps = [comp(10000.0 + 10 * i) for i in range(8)] + [comp(30000.0)]
+    v = value(SUB, comps)
+    assert v.n_ebay == 8 and v.ebay_max == 10070.0
+
+
+def test_real_data_counts_match_stats(real_comps):
+    v = value(SUB, real_comps)
+    assert v.ebay_min <= v.ebay_median <= v.ebay_max and v.n_ebay == 24 and v.n_c24 == 11
+
+
+def test_chrono24_only_confidence_is_capped_at_medium():
+    v = value(SUB, [comp(10000.0 + i, source="chrono24") for i in range(12)])
+    assert v.confidence in ("low", "medium")
+
+
+def test_tier3_with_reference_is_low_confidence():
+    comps = [comp(11000.0 + i, title="Rolex Submariner Date 2015") for i in range(6)]
+    v = value(SUB, comps)
+    assert v.tier == 3 and v.confidence == "low"
+
+
+def test_fewer_than_three_comparables_returns_none():
+    assert value(SUB, [comp(10000.0), comp(10100.0)]) is None
+
+
+def test_estimate_rounds_half_up():
+    v = value(SUB, [comp(10005.0) for _ in range(6)])
+    assert v.estimate_usd == 10010.0
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1385,42 +1651,54 @@ from statistics import median
 from .adjust import adjust_price, learn_factors
 from .backtest import backtest
 from .blend import asking_gap, confidence, percentile, weights
-from .match import select_tier, trim_iqr
+from .match import iqr_mask, select_tier
 from .models import Comparable, Valuation, WatchQuery
 from .parse import is_junk
+
+MIN_COMPARABLES = 3
+
+
+def _kept(comps: list[Comparable], adjusted: list[float]) -> tuple[list[Comparable], list[float]]:
+    """Comparables whose adjusted price survives outlier trimming, with those adjusted prices."""
+    mask = iqr_mask(adjusted)
+    return [c for c, k in zip(comps, mask) if k], [a for a, k in zip(adjusted, mask) if k]
 
 
 def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool = False,
           failed_sources: tuple[str, ...] = ()) -> Valuation | None:
-    usable = [c for c in comps if c.price_usd > 0 and not is_junk(c.title)]
+    # best-offer sales hide the real price: leave them out before tiers and factors see them
+    usable = [c for c in comps if c.price_usd > 0 and not c.best_offer and not is_junk(c.title, query.reference)]
     tier, chosen = select_tier(usable, query)
     if not chosen:
         return None
     factors = learn_factors(chosen)
-    ebay = [c for c in chosen if c.source == "ebay" and c.kind == "sold" and not c.best_offer]
-    c24 = [c for c in chosen if c.source == "chrono24"]
+    ebay_all = [c for c in chosen if c.source == "ebay" and c.kind == "sold"]
+    c24_all = [c for c in chosen if c.source == "chrono24"]
 
-    ebay_adj = trim_iqr([adjust_price(c, factors, query) for c in ebay])
-    c24_adj = trim_iqr([adjust_price(c, factors, query) for c in c24])
+    ebay, ebay_adj = _kept(ebay_all, [adjust_price(c, factors, query) for c in ebay_all])
+    c24, c24_adj = _kept(c24_all, [adjust_price(c, factors, query) for c in c24_all])
     gap = asking_gap([factors.to_baseline(c) for c in ebay], [factors.to_baseline(c) for c in c24])
     w_ebay, w_c24 = weights(len(ebay_adj), len(c24_adj))
     if w_ebay + w_c24 == 0:
         return None
     ebay_est = median(ebay_adj) if ebay_adj else 0.0
     c24_est = median(c24_adj) * (1 - gap) if c24_adj else 0.0
-    estimate = round((w_ebay * ebay_est + w_c24 * c24_est) / 10) * 10
+    estimate = int((w_ebay * ebay_est + w_c24 * c24_est) / 10 + 0.5) * 10
 
     combined = ebay_adj + [p * (1 - gap) for p in c24_adj]
+    if len(combined) < MIN_COMPARABLES:
+        return None
     mid = median(combined)
     spread = (percentile(combined, 90) - percentile(combined, 10)) / mid if mid else 1.0
     bt_n, bt_mdape, bt_within = backtest(ebay, factors)
 
-    ebay_raw = trim_iqr([c.price_usd for c in ebay])  # shown to the owner as-is, before adjustments
-    c24_raw = trim_iqr([c.price_usd for c in c24])
+    ebay_raw = [c.price_usd for c in ebay]  # shown to the owner as-is, before adjustments
+    c24_raw = [c.price_usd for c in c24]
     return Valuation(
         estimate_usd=float(estimate),
-        confidence=confidence(tier, len(combined), spread, bt_mdape, estimated_reference, bool(failed_sources)),
-        tier=tier, n_ebay=len(ebay_adj), n_c24=len(c24_adj),
+        confidence=confidence(tier, len(combined), spread, bt_mdape, estimated_reference, bool(failed_sources),
+                              sold_data=bool(ebay), loose_match=tier == 3 and bool(query.reference)),
+        tier=tier, n_ebay=len(ebay), n_c24=len(c24),
         ebay_median=median(ebay_raw) if ebay_raw else None,
         ebay_p10=percentile(ebay_raw, 10) if ebay_raw else None,
         ebay_p90=percentile(ebay_raw, 90) if ebay_raw else None,
@@ -1437,7 +1715,7 @@ def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_engine.py -q`
-Expected: `6 passed`. If `test_real_submariner_data_gives_a_sensible_estimate` fails, print `value(SUB, real_comps)` and report the numbers. Don't loosen the assertion without the coordinator's approval: a failure here is real information about the engine.
+Expected: all pass. If `test_real_submariner_data_gives_a_sensible_estimate` fails, print `value(SUB, real_comps)` and report the numbers. Don't loosen the assertion without the coordinator's approval: a failure here is real information about the engine.
 
 - [ ] **Step 5: Commit**
 
@@ -1569,6 +1847,23 @@ def test_old_databases_are_migrated(tmp_path):
         assert db.get_watch(conn, w.id).price_usd == 11500.0
     finally:
         conn.close()
+
+
+def test_dial_change_without_reference_clears_market_data_but_not_with_one(conn):
+    no_ref = db.add_watch(conn, "Glashütte Original", "Sixties", "", 3, None, dial="green")
+    db.add_valuation(conn, no_ref, val())
+    db.update_watch(conn, no_ref, "Glashütte Original", "Sixties", "", 3, None, dial="blue")
+    assert db.latest_valuation(conn, no_ref) is None
+    with_ref = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None, dial="black")
+    db.add_valuation(conn, with_ref, val())
+    db.update_watch(conn, with_ref, "Rolex", "Submariner Date", "116610LN", 1, None, dial="blue")
+    assert db.latest_valuation(conn, with_ref)
+
+
+def test_connections_use_wal_and_indexes(conn):
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_valuations_watch", "idx_prices_watch", "idx_comparables_watch"} <= names
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1654,6 +1949,9 @@ CREATE TABLE IF NOT EXISTS valuations (
     failed_sources TEXT NOT NULL DEFAULT '',
     as_of TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_valuations_watch ON valuations(watch_id, as_of);
+CREATE INDEX IF NOT EXISTS idx_prices_watch ON prices(watch_id, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_comparables_watch ON comparables(watch_id, source);
 """
 
 # Columns added after a table was first released: (table, column, declaration).
@@ -1682,7 +1980,7 @@ LEFT JOIN prices p ON p.id = (
     SELECT id FROM prices WHERE watch_id = w.id ORDER BY fetched_at DESC, id DESC LIMIT 1
 )
 LEFT JOIN valuations v ON v.id = (
-    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY as_of DESC, id DESC LIMIT 1
+    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY id DESC LIMIT 1
 )
 """
 
@@ -1722,15 +2020,23 @@ class Watch:
         return self.price_reference or self.reference
 
     @property
-    def identity(self) -> tuple:
+    def priced_as(self) -> tuple:
         """What the market data depends on; when it changes, prices must be fetched again."""
-        return (self.brand, self.model, self.reference, self.price_reference)
+        return priced_as(self.brand, self.model, self.reference, self.price_reference, self.dial, self.metal)
 
     @property
     def query(self) -> WatchQuery:
         return WatchQuery(brand=self.brand, model=self.model, reference=self.pricing_reference, year=self.year,
                           condition=self.condition, box_papers=self.box_papers, dial=self.dial,
                           bracelet=self.bracelet, metal=self.metal)
+
+
+def priced_as(brand: str, model: str, reference: str, price_reference: str | None, dial: str | None,
+              metal: str | None) -> tuple:
+    """Without a reference, searches use the model (and dial and metal), so those matter too."""
+    no_ref = not (price_reference or reference)
+    return (brand, reference, price_reference, model if no_ref else None, dial if no_ref else None,
+            metal if no_ref else None)
 
 
 class SlotTakenError(Exception):
@@ -1746,8 +2052,10 @@ def now_iso() -> str:
 def connect(path: str | PathLike) -> sqlite3.Connection:
     # FastAPI may run a dependency and its endpoint on different threads; each
     # connection is still used by one request at a time.
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # The scheduler and web requests write from different threads: wait for locks, and let reads run alongside.
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     for table, column, decl in MIGRATIONS:
@@ -1796,7 +2104,8 @@ def add_watch(conn, brand: str, model: str, reference: str, slot: int | None, ni
     return cur.lastrowid
 
 
-def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+def _clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+    """Deletes the watch's prices, comparables and valuations; the caller commits."""
     for table in ("prices", "comparables", "valuations"):
         conn.execute(f"DELETE FROM {table} WHERE watch_id = ?", (watch_id,))
 
@@ -1804,7 +2113,7 @@ def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
 def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, slot: int | None, nickname: str | None,
                  price_reference: str | None = None, **details) -> None:
     d = DETAIL_DEFAULTS | details
-    old = conn.execute("SELECT brand, model, reference, price_reference FROM watches WHERE id = ?",
+    old = conn.execute("SELECT brand, model, reference, price_reference, dial, metal FROM watches WHERE id = ?",
                        (watch_id,)).fetchone()
     _write(
         conn,
@@ -1815,12 +2124,8 @@ def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, sl
         slot,
         commit=False,
     )
-    if old:
-        priced_as_changed = (old["brand"], old["reference"], old["price_reference"]) != (brand, reference,
-                                                                                       price_reference)
-        model_matters = not (price_reference or reference)  # without a reference, searches use the model
-        if priced_as_changed or (model_matters and old["model"] != model):
-            clear_market_data(conn, watch_id)
+    if old and priced_as(*old) != priced_as(brand, model, reference, price_reference, d["dial"], d["metal"]):
+        _clear_market_data(conn, watch_id)
     conn.commit()
 
 
@@ -1878,7 +2183,7 @@ def _valuation_dict(row: sqlite3.Row) -> dict:
 
 
 def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
-    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY as_of DESC, id DESC LIMIT 1",
+    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY id DESC LIMIT 1",
                        (watch_id,)).fetchone()
     return _valuation_dict(row) if row else None
 
@@ -1886,9 +2191,14 @@ def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
 def latest_valuations(conn: sqlite3.Connection) -> dict[int, dict]:
     rows = conn.execute("""
         SELECT * FROM valuations v WHERE v.id = (
-            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY as_of DESC, id DESC LIMIT 1)
+            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY id DESC LIMIT 1)
     """).fetchall()
     return {r["watch_id"]: _valuation_dict(r) for r in rows}
+
+
+def latest_comparables_time(conn: sqlite3.Connection, watch_id: int) -> str | None:
+    """When the watch's newest stored comparables were fetched: the data date of a valuation made from them."""
+    return conn.execute("SELECT MAX(fetched_at) FROM comparables WHERE watch_id = ?", (watch_id,)).fetchone()[0]
 
 
 def latest_fetch_time(conn: sqlite3.Connection) -> str | None:
@@ -1900,7 +2210,7 @@ def latest_fetch_time(conn: sqlite3.Connection) -> str | None:
 - [ ] **Step 4: Run the new tests and the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass. That includes the 7 new tests in `test_db_valuation.py` and every existing test. Existing tests that call `add_watch`/`update_watch` positionally still work, because the detail arguments are keyword-only with defaults.
+Expected: all pass. That includes the 9 new tests in `test_db_valuation.py` and every existing test. Existing tests that call `add_watch`/`update_watch` positionally still work, because the detail arguments are keyword-only with defaults.
 
 - [ ] **Step 5: Commit**
 
@@ -1915,7 +2225,7 @@ git commit -m "feat: store watch details, comparables and valuations"
 
 **Files:**
 - Create: `server/watchbox/valuation/service.py`
-- Modify: `server/watchbox/refresh.py`, `server/watchbox/config.py`, `server/watchbox/providers.py`, `server/tests/test_providers.py`
+- Modify: `server/watchbox/refresh.py`, `server/watchbox/config.py`, `server/watchbox/providers.py`, `server/watchbox/app.py`, `server/tests/test_providers.py`, `server/tests/test_app.py`
 - Test: `server/tests/test_val_service.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1927,7 +2237,7 @@ from datetime import date
 import pytest
 
 from watchbox import db, refresh
-from watchbox.valuation.models import Comparable
+from watchbox.valuation.models import Comparable, Valuation
 from watchbox.valuation.service import ValuationService
 from watchbox.valuation.sources.apify import SourceError
 
@@ -2006,6 +2316,78 @@ def test_result_is_discarded_if_watch_changes_during_fetch(conn):
 
     assert not ValuationService([EditingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
     assert db.load_comparables(conn, wid) == []
+
+
+def test_model_rename_with_a_reference_during_fetch_keeps_the_result(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None)
+
+    class RenamingSource(FakeSource):
+        def fetch(self, query):
+            db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None)
+            return comps("ebay")
+
+    assert ValuationService([RenamingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
+    assert len(db.load_comparables(conn, wid)) == 6
+
+
+def test_one_watch_failing_to_value_does_not_stop_the_others(conn, monkeypatch):
+    from watchbox.valuation import service as service_module
+    first = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    second = db.add_watch(conn, "Rolex", "Submariner Date", "126610LN", 2, None)
+    real_value = service_module.value
+
+    def flaky_value(query, *args, **kwargs):
+        if query.reference == "116610LN":
+            raise RuntimeError("boom")
+        return real_value(query, *args, **kwargs)
+
+    monkeypatch.setattr(service_module, "value", flaky_value)
+    service = ValuationService([FakeSource("ebay", comps("ebay"))])
+    assert refresh.refresh_all(conn, service) == 1
+    assert db.latest_valuation(conn, first) is None and db.latest_valuation(conn, second)
+
+
+def test_unexpected_source_errors_are_logged_with_a_trace_and_marked_failed(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", KeyError("bug"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    assert db.latest_valuation(conn, wid)["failed_sources"] == ("chrono24",)
+    assert any(r.exc_info and "chrono24" in r.getMessage() for r in caplog.records)
+
+
+def test_expected_source_errors_are_logged_without_a_trace(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", SourceError("down"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    records = [r for r in caplog.records if "chrono24" in r.getMessage()]
+    assert records and not any(r.exc_info for r in records)
+
+
+def test_valuations_are_dated_by_their_comparables_so_recompute_is_not_fresh_data(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay", 10000.0))])
+    service.refresh_watch(conn, db.get_watch(conn, wid))
+    fetched_at = db.latest_comparables_time(conn, wid)
+    assert fetched_at and db.latest_valuation(conn, wid)["as_of"] == fetched_at
+    last_fetch = db.latest_fetch_time(conn)
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    latest = db.latest_valuation(conn, wid)
+    assert latest["as_of"] == fetched_at and db.latest_fetch_time(conn) == last_fetch
+    assert latest["estimate_usd"] == db.get_watch(conn, wid).price_usd < 10000.0  # the recomputed one
+
+
+def test_recompute_wins_over_an_older_valuation_dated_later(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    db.replace_comparables(conn, wid, "ebay", comps("ebay", 10000.0), fetched_at="2026-10-01T00:00:00+00:00")
+    service = ValuationService([])
+    assert service.recompute(conn, wid)
+    first = db.latest_valuation(conn, wid)
+    db.add_valuation(conn, wid, Valuation(**{**{k: first[k] for k in db.VALUATION_COLUMNS}, "factors": {}}),
+                     as_of="2026-10-02T00:00:00+00:00")  # e.g. stored by an older version, dated "now"
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    assert db.latest_valuation(conn, wid)["estimate_usd"] < first["estimate_usd"]
 ```
 
 Append to `server/tests/test_providers.py`:
@@ -2026,9 +2408,25 @@ In the same file, change the `settings()` helper's base dict to include `apify_t
                 watchapi_token="", price_source="auto", apify_token="")
 ```
 
+Append to `server/tests/test_app.py`:
+```python
+
+
+def test_run_exclusive_skips_when_already_running():
+    import threading
+
+    from watchbox.app import run_exclusive
+    lock, calls = threading.Lock(), []
+    assert run_exclusive(lock, lambda: calls.append(1)) is True
+    assert not lock.locked()
+    with lock:
+        assert run_exclusive(lock, lambda: calls.append(2)) is False
+    assert calls == [1]
+```
+
 - [ ] **Step 2: Run to verify failure**
 
-Run: `server/.venv/bin/pytest server/tests/test_val_service.py server/tests/test_providers.py -q`
+Run: `server/.venv/bin/pytest server/tests/test_val_service.py server/tests/test_providers.py server/tests/test_app.py -q`
 Expected: FAIL (`ModuleNotFoundError: ...service`, and `TypeError` for `apify_token`).
 
 - [ ] **Step 3: Implement `server/watchbox/valuation/service.py`**
@@ -2040,6 +2438,7 @@ import sqlite3
 
 from .. import db
 from .engine import value
+from .sources.apify import SourceError
 
 log = logging.getLogger("watchbox.valuation")
 
@@ -2058,13 +2457,16 @@ class ValuationService:
         for source in self._sources:
             try:
                 fetched[source.name] = source.fetch(query)
-            except Exception as e:  # one source failing must not stop the other
+            except SourceError as e:  # one source failing must not stop the other
                 log.warning("%s failed for %s %s: %s", source.name, watch.brand, query.reference or watch.model, e)
+                failed.append(source.name)
+            except Exception:  # a bug, not an outage: keep the stack trace
+                log.exception("%s failed for %s %s", source.name, watch.brand, query.reference or watch.model)
                 failed.append(source.name)
         if not fetched:
             return False
         current = db.get_watch(conn, watch.id)
-        if current is None or current.identity != watch.identity:
+        if current is None or current.priced_as != watch.priced_as:
             log.info("watch %s changed or was deleted during fetch; discarding result", watch.id)
             return False
         try:
@@ -2084,12 +2486,17 @@ class ValuationService:
         return self._value_and_store(conn, watch, last["failed_sources"] if last else ())
 
     def _value_and_store(self, conn: sqlite3.Connection, watch: db.Watch, failed: tuple[str, ...]) -> bool:
-        valuation = value(watch.query, db.load_comparables(conn, watch.id),
-                          estimated_reference=bool(watch.price_reference), failed_sources=failed)
-        if valuation is None:
-            log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+        try:
+            valuation = value(watch.query, db.load_comparables(conn, watch.id),
+                              estimated_reference=bool(watch.price_reference), failed_sources=failed)
+            if valuation is None:
+                log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+                return False
+            # dated by its data, so a recompute doesn't look like (or count as) a fresh fetch
+            db.add_valuation(conn, watch.id, valuation, as_of=db.latest_comparables_time(conn, watch.id))
+        except Exception:  # one watch failing must not stop the others
+            log.exception("valuation failed for watch %s", watch.id)
             return False
-        db.add_valuation(conn, watch.id, valuation)
         log.info("%s %s -> $%.0f (%s confidence, tier %d, %d eBay + %d Chrono24)", watch.brand,
                  watch.query.reference or watch.model, valuation.estimate_usd, valuation.confidence,
                  valuation.tier, valuation.n_ebay, valuation.n_c24)
@@ -2150,15 +2557,50 @@ def make_provider(settings: Settings) -> PriceProvider | ValuationService | None
     return None
 ```
 
+- [ ] **Step 5b: Keep refreshes from overlapping in `server/watchbox/app.py`**
+
+Add `import threading`. After the `FormStr` line add:
+```python
+_refresh_lock = threading.Lock()  # the scheduler and the "refresh all" button must not overlap
+```
+Before `run_scheduled` add:
+```python
+def run_exclusive(lock: threading.Lock, fn) -> bool:
+    """Runs fn unless another holder of lock is already running; returns whether it ran."""
+    if not lock.acquire(blocking=False):
+        log.info("refresh already running; skipping")
+        return False
+    try:
+        fn()
+    finally:
+        lock.release()
+    return True
+```
+And replace `refresh_everything` inside `create_app` with:
+```python
+    def refresh_everything() -> None:
+        if provider is None:
+            return
+
+        def run() -> None:
+            conn = db.connect(settings.db_path)
+            try:
+                refresh.refresh_all(conn, provider)
+            finally:
+                conn.close()
+
+        run_exclusive(_refresh_lock, run)
+```
+
 - [ ] **Step 6: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass (5 new service tests and 1 new provider test).
+Expected: all pass (9 new service tests, 1 new provider test and 1 new app test).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server/watchbox/valuation/service.py server/watchbox/refresh.py server/watchbox/config.py server/watchbox/providers.py server/tests/test_val_service.py server/tests/test_providers.py
+git add server/watchbox/valuation/service.py server/watchbox/refresh.py server/watchbox/config.py server/watchbox/providers.py server/watchbox/app.py server/tests/test_val_service.py server/tests/test_providers.py server/tests/test_app.py
 git commit -m "feat: valuation service wired in as the comps price source"
 ```
 
@@ -2213,8 +2655,13 @@ def service():
 
 
 @pytest.fixture
-def client(tmp_path, service):
-    settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path=str(tmp_path / "t.db"))
+def db_path(tmp_path):
+    return str(tmp_path / "t.db")
+
+
+@pytest.fixture
+def client(db_path, service):
+    settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path=db_path)
     with TestClient(create_app(settings, service, run_scheduler=False)) as c:
         yield c
 
@@ -2251,10 +2698,29 @@ def test_breakdown_is_shown_on_the_index(client):
     post(client, "/watches")
     page = client.get("/").text
     assert "$11,500" in page
-    assert "eBay sold (90 days): 20 sales" in page
+    assert "eBay sold (90 days" in page and "20 sales" in page
+    assert "typical $10,500–$12,900 (low $9,800, high $13,300)" in page
+    assert "adjusted for your watch's condition and box &amp; papers" in page
     assert "Chrono24 asking: 8 listings" in page
     assert "within ±4.2%" in page
     assert "medium confidence" in page
+
+
+def test_breakdown_handles_missing_source_stats(client, db_path):
+    post(client, "/watches")
+    conn = db.connect(db_path)
+    try:
+        db.add_valuation(conn, 1, Valuation(
+            estimate_usd=12000.0, confidence="low", tier=2, n_ebay=0, n_c24=0, ebay_median=None, ebay_p10=None,
+            ebay_p90=None, ebay_min=None, ebay_max=None, c24_median=None, gap=0.0, w_ebay=0.0, w_c24=1.0,
+            backtest_n=0, backtest_mdape=None, backtest_within10=None, factors={}))
+    finally:
+        conn.close()
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "eBay sold: not enough sales" in r.text
+    assert "Chrono24: no listings" in r.text
+    assert "Backtest: not enough sales yet" in r.text
 
 
 def test_detail_edit_recomputes_without_refetching(client, service):
@@ -2268,6 +2734,22 @@ def test_reference_edit_refetches(client, service):
     post(client, "/watches")
     post(client, "/watches/1", reference="126610LN")
     assert service.refreshed == [1, 1] and service.recomputed == []
+
+
+def test_unicode_digit_year_is_rejected_with_a_friendly_error(client):
+    r = post(client, "/watches", year="²015")
+    assert "Year%20must%20be%20between" in r.headers["location"]
+
+
+def test_recompute_failure_still_redirects(client, service, monkeypatch):
+    post(client, "/watches")
+
+    def boom(conn, watch_id):
+        raise RuntimeError("engine bug")
+
+    monkeypatch.setattr(service, "recompute", boom)
+    r = post(client, "/watches/1", condition="good")
+    assert r.status_code == 303 and r.headers["location"] == "/"
 ```
 
 Append to `server/tests/test_display.py`:
@@ -2324,7 +2806,7 @@ def parse_year(raw: str) -> int | None:
     if not raw:
         return None
     this_year = date.today().year
-    if not raw.isdigit() or not 1900 <= int(raw) <= this_year:
+    if not (raw.isascii() and raw.isdigit()) or not 1900 <= int(raw) <= this_year:
         raise ValueError(f"Year must be between 1900 and {this_year}")
     return int(raw)
 
@@ -2401,10 +2883,13 @@ def parse_details(year: str, condition: str, box_papers: str, dial: str, bracele
         except (ValueError, db.SlotTakenError) as e:
             return redirect(f"/watches/{watch_id}/edit", str(e))
         after = db.get_watch(conn, watch_id)
-        if before.identity != after.identity or not hasattr(provider, "recompute"):
+        if before.priced_as != after.priced_as or not hasattr(provider, "recompute"):
             background.add_task(refresh_one, watch_id)
         else:
-            provider.recompute(conn, watch_id)  # only details changed: re-value from stored comparables
+            try:  # only details changed: re-value from stored comparables
+                provider.recompute(conn, watch_id)
+            except Exception:
+                log.exception("recompute failed for watch %s", watch_id)
         return redirect("/")
 ```
 
@@ -2464,8 +2949,9 @@ Immediately before the line `    <a href="/watches/{{ w.id }}/edit">Edit</a>`, i
     {% if v %}
     <div class="breakdown">
       <span class="badge {{ v.confidence }}">{{ v.confidence }} confidence</span>
-      {% if v.n_ebay %}<div>eBay sold (90 days): {{ v.n_ebay }} sales · median {{ format_price(v.ebay_median) }} · typical {{ format_price(v.ebay_p10) }}–{{ format_price(v.ebay_p90) }} (low {{ format_price(v.ebay_min) }}, high {{ format_price(v.ebay_max) }})</div>{% endif %}
-      {% if v.n_c24 %}<div>Chrono24 asking: {{ v.n_c24 }} listings · median {{ format_price(v.c24_median) }}</div>{% endif %}
+      {% if v.n_ebay and v.ebay_median is not none %}<div>eBay sold (90 days, all conditions &amp; box contents): {{ v.n_ebay }} sales · median {{ format_price(v.ebay_median) }} · typical {{ format_price(v.ebay_p10) }}–{{ format_price(v.ebay_p90) }} (low {{ format_price(v.ebay_min) }}, high {{ format_price(v.ebay_max) }})</div>{% else %}<div>eBay sold: not enough sales</div>{% endif %}
+      {% if v.n_c24 and v.c24_median is not none %}<div>Chrono24 asking: {{ v.n_c24 }} listings · median {{ format_price(v.c24_median) }}</div>{% else %}<div>Chrono24: no listings</div>{% endif %}
+      <div class="muted">Estimate adjusted for your watch's condition and box &amp; papers.</div>
       <div>{% if v.backtest_mdape is not none %}Backtest: typically within ±{{ (v.backtest_mdape * 100) | round(1) }}% of real sales ({{ v.backtest_n }} tested){% else %}Backtest: not enough sales yet{% endif %}</div>
       <div class="muted">Match tier {{ v.tier }}{% if v.failed_sources %} · unavailable this time: {{ v.failed_sources | join(", ") }}{% endif %} · {{ v.as_of[:10] }}</div>
     </div>
@@ -2483,7 +2969,7 @@ In `server/watchbox/templates/base.html`, add these CSS rules just before `</sty
 - [ ] **Step 7: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass, including the 9 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
+Expected: all pass, including the 12 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
 
 - [ ] **Step 8: Commit**
 
@@ -2520,7 +3006,8 @@ from watchbox.valuation.service import ValuationService  # noqa: E402
 
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(args) != 1 or not args[0].isdigit():
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    if len(args) != 1 or not args[0].isdigit() or any(f != "--fetch" for f in flags):
         sys.exit("usage: python scripts/check_valuation.py <watch id> [--fetch]")
     settings = load_settings()
     conn = db.connect(settings.db_path)
@@ -2532,14 +3019,15 @@ def main() -> None:
         if not isinstance(provider, ValuationService):
             sys.exit("--fetch needs APIFY_TOKEN set (and PRICE_SOURCE auto or comps)")
         print("fetching comparables (takes a minute or two)...")
-        provider.refresh_watch(conn, watch)
+        if not provider.refresh_watch(conn, watch):
+            print("fetch failed or no usable data; showing stored comparables")
     q = watch.query
     comps = db.load_comparables(conn, watch.id)
     print(f"\n{watch.brand} {watch.model} {q.reference or '(no reference)'} | {q.condition}, {q.box_papers}, "
           f"year {q.year or '?'}, dial {q.dial or '?'}, bracelet {q.bracelet or '?'}, metal {q.metal or '?'}")
     print(f"{len(comps)} stored comparables\n")
     for c in sorted(comps, key=lambda c: (c.source, c.price_usd)):
-        reason = ("junk" if is_junk(c.title) else "best offer" if c.best_offer
+        reason = ("junk" if is_junk(c.title, q.reference) else "best offer" if c.best_offer
                   else "tier 1" if in_tier(c, q, 1) else "tier 2" if in_tier(c, q, 2)
                   else "tier 3" if in_tier(c, q, 3) else "no match")
         print(f"  {c.source:<8} ${c.price_usd:>9,.0f}  {reason:<10} {c.box_papers or '-':<11} "
@@ -2600,6 +3088,12 @@ PRICE_SOURCE=auto
 Under "## Get a price source key", insert this as the first subsection:
 ```markdown
 **Apify valuation engine (default, most accurate):** create a free account at https://apify.com, copy your Personal API token (Console → Settings → API & Integrations) into `server/.env` as `APIFY_TOKEN`. Each watch is valued from eBay sold listings (last 90 days) and Chrono24 asking prices, adjusted for its condition, box & papers and other details, with a backtest that shows how accurate the estimate is. Explain any watch's number with `.venv/bin/python scripts/check_valuation.py <watch id>` (add `--fetch` to pull fresh data first).
+After switching to the Apify engine, click **Refresh prices now** once to get the first valuations right away; otherwise they wait for the next scheduled refresh.
+```
+Change the `cp .env.example .env` comment under "## Run the app" to `# add your APIFY_TOKEN (or THEWATCHAPI_TOKEN)`, and add this paragraph right after the `Tests:` line:
+```markdown
+
+Backups: the database uses SQLite WAL mode, so don't just copy `watchbox.db` while the app is running. Either run `sqlite3 server/watchbox.db ".backup watchbox-backup.db"` (safe while running), or stop the app and copy `watchbox.db` together with its `watchbox.db-wal` and `watchbox.db-shm` files.
 ```
 
 - [ ] **Step 5: Align the spec with the implementation**
@@ -2608,7 +3102,7 @@ In `docs/superpowers/specs/2026-10-02-valuation-engine-design.md`:
 - In section 8, replace `c24_count, c24_median` with `c24_median`, and add `failed_sources` before `as_of` in the column list.
 - In section 10, replace `refresh.py       # fetch, store comparables, run engine, store valuation` with `service.py       # ValuationService: fetch, store comparables, value, recompute`.
 - In section 4, replace the year-preference sentence with: "Year: when the owner set a year, listings more than 3 years away are dropped, and listings with an unknown year are kept, provided at least 5 remain. Otherwise all are kept."
-- In section 2 "Storage", replace "Each refresh **replaces** that watch's comparables. Rows older than 90 days are deleted." with "Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows."
+- In section 2 "Storage", replace the two bullets "Each refresh **replaces** that watch's comparables." and "Rows older than 90 days are deleted." with the single bullet "Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows."
 
 - [ ] **Step 6: Run the full suite**
 
@@ -2618,7 +3112,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server/scripts/check_valuation.py server/.env.example README.md docs/superpowers/specs/2026-10-02-valuation-engine-design.md
+git add server/scripts/check_valuation.py server/.env.example README.md docs/superpowers/specs/2026-10-02-valuation-engine-design.md docs/superpowers/plans/2026-10-02-valuation-engine.md
 git commit -m "docs: valuation check script, config and README"
 ```
 

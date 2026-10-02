@@ -101,8 +101,7 @@ New table `comparables`:
 
 `id, watch_id, source, kind, price_usd, date, title, url, reference, year, condition, box_papers, dial, bracelet, metal, best_offer, fetched_at`
 
-- Each refresh **replaces** that watch's comparables.
-- Rows older than 90 days are deleted.
+- Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows.
 - Rows are deleted along with their watch.
 
 ## 3. Reading listing details (`parse.py`)
@@ -141,9 +140,10 @@ Comparables are scored against the watch, using only the details the owner set:
 | 3 | Brand and model appear in the title. Only used when there's no reference, or when tiers 1–2 fail. |
 
 - The engine picks the **tightest tier with at least 5 comparables**, counting both sources together. If none reaches 5, it uses the tier with the most comparables and caps confidence at low.
-- Year: when the owner set a year, comparables within ±3 years are preferred. They're kept first, and listings without a year come next.
+- Year: when the owner set a year, listings more than 3 years away are dropped, and listings with an unknown year are kept, provided at least 5 remain. Otherwise all are kept.
 - **Outlier trimming, per source:** comparables outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]` are dropped, computed after adjustment (section 5). With fewer than 4 comparables, nothing is trimmed.
-- eBay comparables with `best_offer=true` are **excluded** from the eBay figures, because the real sale price is unknown.
+- eBay comparables with `best_offer=true` are **excluded** before tier selection and factor learning, because the real sale price is unknown.
+- **One consistent sample.** Trimming (`iqr_mask`) runs on adjusted prices and decides which comparables are kept. `n_ebay` / `n_c24` and the displayed raw stats (median, P10, P90, min, max) all come from those same kept comparables, with no second trim.
 
 ## 5. Adjustments (`adjust.py`)
 
@@ -187,6 +187,9 @@ Every comparable is converted to a **baseline watch** (full set, excellent condi
   | **low** | everything else |
 
   Using a `price_reference` (estimating from another reference) caps confidence at medium.
+- **More caps.** With no eBay sold comparables (Chrono24 asking prices only), confidence is capped at medium. Tier 3 with an owner-set reference (a loose match) caps it at low.
+- **Minimum sample.** If fewer than 3 comparables survive trimming, there is no valuation (the service keeps the previous one).
+- The $10 rounding is half up.
 
 ## 7. Backtest (`backtest.py`)
 
@@ -194,6 +197,7 @@ A leave-one-out check on the watch's own eBay sold comparables at the chosen tie
 
 - For each sold comparable `i`, compute the eBay estimate using all the other comparables (same tier rule, adjustments and trimming), converted to comparable `i`'s own details. Then record the error `|predicted − actual| / actual`.
 - **Reported:** `n_tested`, the **median absolute percentage error** (MdAPE), and the share of predictions within ±10%.
+- Runs on the kept (post-trim) eBay comparables.
 - **Only run when** at least 6 sold comparables exist; otherwise it's reported as "not enough data".
 - **Used for:** the confidence rule (section 6), and as evidence for tuning the priors. The check script prints it for every watch.
 
@@ -201,9 +205,9 @@ A leave-one-out check on the watch's own eBay sold comparables at the chosen tie
 
 New table `valuations`, one row per valuation:
 
-`id, watch_id, estimate_usd, confidence, tier, n_ebay, n_c24, ebay_median, ebay_p10, ebay_p90, ebay_min, ebay_max, c24_count, c24_median, gap, w_ebay, w_c24, backtest_n, backtest_mdape, backtest_within10, factors_json, as_of`
+`id, watch_id, estimate_usd, confidence, tier, n_ebay, n_c24, ebay_median, ebay_p10, ebay_p90, ebay_min, ebay_max, c24_median, gap, w_ebay, w_c24, backtest_n, backtest_mdape, backtest_within10, factors_json, failed_sources, as_of`
 
-- **The current price** becomes the latest valuation's `estimate_usd`. Existing code that reads `price_usd` gets it through the `_SELECT` join, which changes to join the latest valuation. The v0 `prices` table stays for providers that are still used (TheWatchAPI, eBay Browse).
+- **The current price** becomes the latest valuation's `estimate_usd`. "Latest" means most recently written (highest id). A valuation's `as_of` is the fetch time of the comparables it was made from, so a recompute keeps the data date and doesn't count as a fetch. Existing code that reads `price_usd` gets it through the `_SELECT` join, which changes to join the latest valuation. The v0 `prices` table stays for providers that are still used (TheWatchAPI, eBay Browse).
 - **Web page, per watch:**
   - The estimate with a confidence badge.
   - "eBay sold (90 days): N sales, median $X, typical $P10–$P90 (low $min, high $max)".
@@ -218,7 +222,7 @@ New table `valuations`, one row per valuation:
 ## 9. Refresh and failure handling
 
 - **Price source selection.** `PRICE_SOURCE=comps` selects the engine. With `PRICE_SOURCE=auto`, the engine is chosen when `APIFY_TOKEN` is set; otherwise the existing v0 providers are used.
-- **Daily refresh** (`REFRESH_HOURS=24`), one watch at a time, both sources per watch. A watch is also refreshed when it's added, or when its brand, model, reference or `price_reference` changes.
+- **Daily refresh** (`REFRESH_HOURS=24`), one watch at a time, both sources per watch. A watch is also refreshed when it's added, or when what its market data depends on changes (`Watch.priced_as`): its brand, reference or `price_reference`, and, only when it has no reference at all, its model, dial and metal too, since searches then use those. Editing the model of a watch that has a reference does not refetch.
 - **Detail-only edits** (condition, box & papers, year, dial, bracelet, metal) **recompute from the stored comparables** with no new fetch, synchronously, before the edit page redirects.
 - **"Refresh prices now"** refetches everything.
 - **When a source fails:** keep the other source's comparables, mark the failed source in the valuation, and lower confidence one level. If both fail, keep the previous valuation and its date. Never store an empty valuation.
@@ -240,7 +244,7 @@ server/watchbox/valuation/
     apify.py       # shared Apify client (run-sync, auth, errors, timeouts)
     ebay_sold.py   # ApifyEbaySoldSource
     chrono24.py    # ApifyChrono24Source
-  refresh.py       # fetch, store comparables, run engine, store valuation
+  service.py       # ValuationService: fetch, store comparables, value, recompute
 server/scripts/check_valuation.py   # full breakdown for one watch
 ```
 
@@ -250,7 +254,7 @@ server/scripts/check_valuation.py   # full breakdown for one watch
 
 - **Fixtures:** the real Apify output from 2026-10-02.
   - `ebay_sold_116610ln.json`: 31 rows, including the summary row.
-  - `chrono24_116610ln.json`: 20 rows. It's re-captured with `fetchListingDetails=true` during implementation, so spec-table parsing has real data.
+  - `chrono24_116610ln.json`: 12 rows. It's re-captured with `fetchListingDetails=true` during implementation, so spec-table parsing has real data.
 - **Unit tests:**
   - Parsing: each rule, the synonyms and the junk filter, with real titles from the fixtures.
   - Tiers: fallback, the 5-comparable minimum, year preference.
@@ -271,3 +275,20 @@ server/scripts/check_valuation.py   # full breakdown for one watch
 - The 116610LN estimate falls between the eBay sold median and the Chrono24 asking median seen on 2026-10-02 (about $11.5k–$12.3k), unless the owner's details justify otherwise.
 - Every valuation shows its breakdown and backtest on the web page.
 - Editing a watch's condition or box & papers changes its estimate immediately, with no Apify call.
+
+## Known limitations
+
+- Condition factors rarely learn from data: sources seldom label a listing "excellent", so there is usually no baseline group and the priors stay in force.
+- An unknown box & papers status is treated as a full set. Real data suggests unknown listings behave closer to 0.95.
+- Per-source pooling of learned factors weights each source by its group size only, not by how reliable the source is.
+- Engine refinements made during implementation:
+  - IQR trimming uses a spread floor of 6% of the median, so tight clusters don't drop normal prices.
+  - The asking-to-sold gap is shrunk toward the 7% default when there are few samples, and capped at 0–20%.
+  - Learned factors are capped: no box & papers status beats a full set, "new" never ranks below excellent, and lower grades never rank above it.
+  - Extra junk terms, including `pvd`, `dlc` and aftermarket gem phrases (diamond, sapphires, gem set). Gem phrases are ignored when the watch being valued is itself a gem-set reference.
+  - "New" in an eBay title only counts at the start of the title.
+  - The backtest reuses the factors learned on all comparables, so it has a slight optimistic bias.
+  - Tier 3 may include listings without the reference, so when the owner set a reference, a tier-3 valuation is capped at low confidence.
+- If a source keeps failing, its older comparables are kept and still used; the valuation lists that source as unavailable.
+- If you switch from the engine back to a v0 source, an older engine valuation can hide the newer v0 price, because the latest valuation wins over prices.
+- Per-watch refreshes on add or edit don't take the refresh-all lock, so they can overlap a scheduled refresh of the same watch (the result is still checked against the watch before it's stored).

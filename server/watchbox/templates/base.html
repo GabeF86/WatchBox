@@ -30,11 +30,15 @@
     button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
     button.danger { background: transparent; color: #c0392b; border: 1px solid #c0392b; }
     .row { display: flex; gap: 8px; margin-top: 12px; }
+    .breakdown { grid-column: 2 / 4; font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+    .badge { justify-self: start; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--line); color: var(--ink); }
+    .badge.high { background: #d6f2e3; color: #1f5f4a; }
+    .badge.low { background: var(--warn); }
   </style>
 </head>
 <body>
 <main>
-  {% if not has_provider %}<p class="banner">No price source configured: add THEWATCHAPI_TOKEN (or eBay keys) to server/.env and restart. Prices won't update.</p>{% endif %}
+  {% if not has_provider %}<p class="banner">No price source configured: add APIFY_TOKEN (or THEWATCHAPI_TOKEN / eBay keys) to server/.env and restart.</p>{% endif %}
   {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
   {% block content %}{% endblock %}
 </main>

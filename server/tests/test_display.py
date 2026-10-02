@@ -93,3 +93,12 @@ def test_estimated_prices_are_marked_on_the_lcd():
     est = Watch(id=1, brand="GO", model="Sixties", reference="A", slot=3, nickname="GO Sixties",
                 price_usd=6779.32, price_date="2024-07-17", price_reference="B")
     assert build_screens([est], today=today)[1] == {"line1": "3 GO Sixties", "line2": "~$6,779 Jul24"}
+
+
+def test_low_confidence_prices_get_a_question_mark():
+    low = Watch(id=1, brand="Rolex", model="Submariner", reference="X", slot=1, nickname=None,
+                price_usd=11490.0, confidence="low")
+    high = Watch(id=2, brand="Rolex", model="Datejust", reference="Y", slot=2, nickname=None,
+                 price_usd=14420.0, confidence="high")
+    screens = build_screens([low, high])
+    assert screens[1]["line2"] == "$11,490?" and screens[2]["line2"] == "$14,420"

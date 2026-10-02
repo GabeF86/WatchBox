@@ -10,6 +10,8 @@ log = logging.getLogger("watchbox.refresh")
 
 
 def refresh_watch(conn: sqlite3.Connection, provider: PriceProvider, watch: db.Watch) -> bool:
+    if hasattr(provider, "refresh_watch"):  # e.g. the valuation engine, which stores its own results
+        return provider.refresh_watch(conn, watch)
     try:
         result = provider.get_price(watch.brand, watch.pricing_reference)
     except Exception:

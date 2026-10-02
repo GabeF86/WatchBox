@@ -6,7 +6,7 @@ from watchbox.watchapi import TheWatchApiProvider
 
 def settings(**overrides):
     base = dict(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path="x.db",
-                watchapi_token="", price_source="auto")
+                watchapi_token="", price_source="auto", apify_token="")
     return Settings(**(base | overrides))
 
 
@@ -30,3 +30,11 @@ def test_explicit_source_without_its_key_is_none():
 
 def test_unknown_source_is_none():
     assert make_provider(settings(price_source="chrono24", watchapi_token="t")) is None
+
+
+def test_auto_prefers_comps_when_apify_token_set():
+    from watchbox.valuation.service import ValuationService
+    s = settings(apify_token="a", watchapi_token="t")
+    assert isinstance(make_provider(s), ValuationService)
+    assert isinstance(make_provider(settings(price_source="thewatchapi", watchapi_token="t", apify_token="a")),
+                      TheWatchApiProvider)
