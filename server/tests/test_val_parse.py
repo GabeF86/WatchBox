@@ -18,6 +18,9 @@ def test_norm_strips_punctuation_and_accents():
     ("Rolex 116610LN box only", True),
     ("Rolex Submariner for parts or repair", True),
     ("Rolex Submariner Date 116610LN Black Ceramic Bezel", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", True),
+    ("Rolex Datejust customized with diamonds", True),
+    ("Rolex Datejust gem set bezel", True),
     ("Customer favorite Rolex 116610LN", False),
 ])
 def test_is_junk(title, junk):
@@ -29,6 +32,17 @@ def test_reference_matches_any_text_ignoring_spacing():
     assert reference_matches("116610LN", "Rolex Submariner Date", "116610 LN")
     assert not reference_matches("116610LN", "Rolex Submariner Date", "126610LN")
     assert not reference_matches("", "anything")
+
+
+@pytest.mark.parametrize("ref, text, expected", [
+    ("16610LN", "Rolex 116610LN", False),
+    ("1680", "Rolex 16800", False),
+    ("116610LN", "Submariner 40 116610LN", True),
+    ("116610LN", "Rolex 116610 LN", True),
+    ("2-39-47-01-01-04", "Glash\u00fctte 2-39-47-01-01-04 Sixties", True),
+])
+def test_reference_matches_respects_digit_boundaries(ref, text, expected):
+    assert reference_matches(ref, text) is expected
 
 
 @pytest.mark.parametrize("text, year", [
@@ -48,6 +62,16 @@ def test_year_from_text(text, year):
     ("#80 Rolex Submariner Date 40mm Black Dial 116610LN 2013 Papers", "papers_only"),
     ("116610LN With Box Steel 40mm Black Dial", "box_only"),
     ("Rolex 116610LN no box no papers", "watch_only"),
+    ("2020 Rolex Submariner Date 116610LN 40mm Black Ceramic Stainless Steel Box Paper", "full_set"),
+    ("Rolex Submariner Date 116610LN 40MM Black Oyster Steel Box Paper", "full_set"),
+    ("Rolex 116610LN B+P", "full_set"),
+    ("Rolex 116610LN no box no card", "watch_only"),
+    ("Rolex 116610LN 1 year warranty, pay by credit card", None),
+    ("Rolex 116610LN no box", "watch_only"),
+    ("Rolex 116610LN with box, no papers", "box_only"),
+    ("Rolex 116610LN no box, papers", "papers_only"),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", None),
+    ("Rolex 116610LN with warranty card", "papers_only"),
     ("2017 Rolex Submariner Date 116610LN Black Dial Oyster Bracelet", None),
 ])
 def test_box_papers_from_title(title, expected):
@@ -60,9 +84,32 @@ def test_box_papers_from_title(title, expected):
     ("New Rolex Submariner 116610LN 40mm", "new"),
     ("Unworn Submariner NOS Full Stickers 114060", "new"),
     ("2017 Rolex Submariner Date 116610LN", None),
+    ("Rolex 116610LN with new strap", None),
+    ("Rolex 116610LN new service just done", None),
+    ("Rolex 116610LN not new", None),
+    ("New York dealer Rolex 116610LN", None),
+    ("New strap Rolex 116610LN", None),
+    ("Rolex 116610LN BNIB sealed", "new"),
+    ("Rolex 116610LN brand new", "new"),
+    ("Rolex 116610LN new old stock", "new"),
+    ("Rolex 116610LN new with tags", "new"),
 ])
 def test_condition_from_title(title, expected):
     assert condition_from_title(title) == expected
+
+
+@pytest.mark.parametrize("text, year", [
+    ("EXCELLENT ROLEX Submariner 116610LN CARD & BOX SERVICED 2023!", None),
+    ("EXCELLENT ROLEX Submariner 116610LN BOX & CARD & 2023 SERVICE CARD!", None),
+    ("Rolex 116610LN B&P 2015 + 2022 SC", 2015),
+    ("Rolex 116610LN 2021 RSC", None),
+    ("Rolex 116610LN polished 2019", None),
+    ("Rolex 116610LN warranty 2024", None),
+    ("Rolex Vintage 1960s Submariner", None),
+    ("Rolex 116610LN 2099", None),
+])
+def test_year_ignores_service_years_decades_and_future(text, year):
+    assert year_from_text(text) == year
 
 
 def test_dial_bracelet_metal_from_title():
@@ -89,7 +136,9 @@ def test_parse_title_returns_all_detail_keys():
 @pytest.mark.parametrize("text, new, expected", [
     ("Used (very good)", False, "very_good"),
     ("Used (good)", False, "good"),
-    ("Like new & unworn", False, "new"),
+    ("Like new & unworn", False, "excellent"),
+    ("Like new & unworn", True, "new"),
+    ("Unworn", False, "new"),
     ("Used (mint)", False, "excellent"),
     ("Used (fair)", False, "fair"),
     (None, True, "new"),

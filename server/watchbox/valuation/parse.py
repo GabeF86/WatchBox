@@ -1,6 +1,7 @@
 """Reads watch details out of listing titles and Chrono24 spec fields. Pure functions."""
 import re
 import unicodedata
+from datetime import date
 
 from .models import DIALS
 
@@ -10,18 +11,22 @@ JUNK_PHRASES = (
     "crown only", "case back", "instruction manual", "manual only", "booklet",
     # not working, not genuine, or not as the factory made it
     "for parts", "parts only", "for repair", "needs repair", "repair only", "replica", "homage",
-    "custom", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd", "dlc",
+    "custom", "customized", "custom made", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd",
+    "dlc", "diamond", "diamonds", "sapphires", "gem set",
 )
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
-                    "full set", "complete set")
+                    "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
 DIAL_RE = re.compile(r"(?<![a-z])(black|blue|white|silver|green|grey|gray|champagne|brown|red)\s+dial")
 STRAP_RE = re.compile(r"(?<![a-z])(oyster|leather|rubber)\s+(bracelet|strap|band)")
 
 
+def _fold(text: str | None) -> str:
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+
+
 def norm(text: str | None) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]", "", ascii_text.lower())
+    return re.sub(r"[^a-z0-9]", "", _fold(text))
 
 
 def _has(text: str, phrase: str) -> bool:
@@ -35,38 +40,78 @@ def is_junk(title: str | None) -> bool:
 
 
 def reference_matches(reference: str | None, *texts: str | None) -> bool:
-    ref = norm(reference)
-    return bool(ref) and any(ref in norm(t) for t in texts if t)
+    """True if the reference appears in any text, tolerating spaces, dashes, dots and slashes inside it but not
+    extra digits around it ("16610LN" must not match "116610LN")."""
+    chars = norm(reference)
+    if not chars:
+        return False
+    pattern = r"(?<![0-9])" + r"[\s\-./]*".join(re.escape(ch) for ch in chars)
+    if chars[-1].isdigit():
+        pattern += r"(?![0-9])"
+    regex = re.compile(pattern)
+    return any(regex.search(_fold(t)) for t in texts if t)
 
 
 def year_from_text(text: str | None) -> int | None:
-    m = YEAR_RE.search(text or "")
-    return int(m.group(1)) if m else None
+    t = (text or "").lower()
+    tokens = re.findall(r"[a-z0-9]+", t)
+    this_year = date.today().year
+    for i, token in enumerate(tokens):
+        if not YEAR_RE.fullmatch(token) or int(token) > this_year:
+            continue
+        neighbours = tokens[max(0, i - 1):i] + tokens[i + 1:i + 2]
+        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc", "warranty") for n in neighbours):
+            continue
+        return int(token)
+    return None
 
 
 def box_papers_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
-    if _has(t, "watch only") or (_has(t, "no box") and _has(t, "no papers")):
+    if _has(t, "watch only"):
         return "watch_only"
     if any(_has(t, p) for p in FULL_SET_PHRASES):
         return "full_set"
-    box = _has(t, "box") and not _has(t, "no box")
-    papers = (_has(t, "papers") or _has(t, "card") or _has(t, "warranty")) and not _has(t, "no papers")
+    box_neg = _has(t, "no box")
+    papers_neg = any(_has(t, p) for p in ("no papers", "no paper", "no card", "no warranty"))
+    box = _has(t, "box") and not box_neg
+    papers = (_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+    tokens = re.findall(r"[a-z0-9]+", t)
+    if not papers and not _has(t, "no card"):
+        for i, token in enumerate(tokens):
+            if token != "card":
+                continue
+            near = tokens[max(0, i - 3):i] + tokens[i + 1:i + 4]
+            prev = tokens[i - 1] if i else ""
+            if prev in ("warranty", "rolex", "with") or any(n in ("box", "papers", "paper") for n in near):
+                papers = True
+                break
     if box and papers:
         return "full_set"
     if box:
         return "box_only"
     if papers:
         return "papers_only"
+    if box_neg and not papers:
+        return "watch_only"
     return None
+
+
+NEW_PHRASES = ("unworn", "nos", "new old stock", "bnib", "new with tags")
+NOT_NEW_NEXT = ("strap", "band", "bracelet", "york", "service")
 
 
 def condition_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
     if _has(t, "like new") or _has(t, "mint"):
         return "excellent"
-    if any(_has(t, p) for p in ("unworn", "nos", "brand new", "new old stock", "new")):
-        return "new"
+    if not _has(t, "not new"):
+        if any(_has(t, p) for p in NEW_PHRASES) or re.search(
+                rf"(?<![a-z0-9])brand new(?![a-z0-9])(?!\s+({'|'.join(NOT_NEW_NEXT)}))", t):
+            return "new"
+        tokens = re.findall(r"[a-z0-9]+", t)
+        if tokens[:1] == ["new"] and (len(tokens) < 2 or tokens[1] not in NOT_NEW_NEXT):
+            return "new"
     if _has(t, "excellent"):
         return "excellent"
     return None
@@ -121,8 +166,8 @@ def parse_title(title: str | None) -> dict:
 
 # Chrono24 spec fields --------------------------------------------------------
 
-_C24_CONDITION = (  # order matters: "unworn" before "like new" before "new"; "very good" before "good"
-    ("unworn", "new"), ("like new", "excellent"), ("mint", "excellent"), ("new", "new"),
+_C24_CONDITION = (  # order matters: "like new" before "unworn" before "new"; "very good" before "good"
+    ("like new", "excellent"), ("unworn", "new"), ("mint", "excellent"), ("new", "new"),
     ("very good", "very_good"), ("good", "good"), ("fair", "fair"), ("poor", "fair"), ("incomplete", "fair"),
 )
 _C24_SCOPE = {"WithBoxAndPapers": "full_set", "WithBox": "box_only", "WithPapers": "papers_only",

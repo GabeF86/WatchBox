@@ -8,7 +8,8 @@ import pytest
 from watchbox.valuation.models import WatchQuery
 from watchbox.valuation.sources.apify import ApifyClient, SourceError
 from watchbox.valuation.sources.chrono24 import ApifyChrono24Source, search_url
-from watchbox.valuation.sources.ebay_sold import ApifyEbaySoldSource, ebay_query, parse_sold_date
+from watchbox.valuation.sources.ebay_sold import (ApifyEbaySoldSource, comparable_from_row, ebay_query,
+                                                  parse_sold_date)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EBAY_ROWS = json.loads((FIXTURES / "ebay_sold_116610ln.json").read_text())
@@ -61,6 +62,31 @@ def test_ebay_query_and_payload():
 def test_parse_sold_date():
     assert parse_sold_date("Sold  Oct 1, 2026") == date(2026, 10, 1)
     assert parse_sold_date(None) is None
+    assert parse_sold_date("Sold  Sep 30, 2026") == date(2026, 9, 30)
+    assert parse_sold_date("Sold  Feb 30, 2026") is None
+
+
+@pytest.mark.parametrize("title, cond, expected", [
+    ("Rolex 116610LN", "Brand New", "new"),
+    ("Rolex 116610LN", "New with tags", "new"),
+    ("Rolex 116610LN", "New without tags", "new"),
+    ("New Rolex 116610LN", "Pre-Owned", None),
+    ("Rolex 116610LN brand new", "Pre-Owned", None),
+    ("Rolex 116610LN mint", "Pre-Owned", "excellent"),
+    ("Rolex 116610LN", "Pre-Owned", None),
+])
+def test_ebay_row_condition_overrides_title(title, cond, expected):
+    row = {"title": title, "priceValue": 10000, "currency": "USD", "condition": cond}
+    assert comparable_from_row(row).condition == expected
+
+
+def test_client_redacts_token_from_errors():
+    def handler(request):
+        return httpx.Response(500, text="oops secret-token leaked")
+
+    with pytest.raises(SourceError) as exc:
+        client(handler).run("memo23/x", {})
+    assert "secret-token" not in str(exc.value) and "***" in str(exc.value)
 
 
 def test_ebay_source_parses_fixture():
@@ -85,4 +111,4 @@ def test_chrono24_source_parses_fixture_details():
     assert first.reference == "126610LN" and "116610LN" in first.title  # mislabelled reference, real one in the title
     assert comps[1].box_papers == "full_set" and comps[1].condition == "very_good"
     assert comps[5].year == 2014  # "2014 (Approximation)"
-    assert comps[10].condition == "new"  # "Like new & unworn"
+    assert comps[10].condition == "excellent"  # "Like new & unworn" (not flagged conditionNew)

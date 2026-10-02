@@ -9,6 +9,9 @@ class SourceError(Exception):
 
 
 class ApifyClient:
+    def _redact(self, message: str) -> str:
+        return message.replace(self._token, "***") if self._token else message
+
     def __init__(self, token: str, http: httpx.Client | None = None, timeout_s: int = 300):
         self._token = token
         self._http = http or httpx.Client()
@@ -21,13 +24,13 @@ class ApifyClient:
                                        headers={"Authorization": f"Bearer {self._token}"},
                                        timeout=self._timeout_s + 30)
         except httpx.HTTPError as e:
-            raise SourceError(f"{actor}: request failed ({type(e).__name__})") from None
+            raise SourceError(self._redact(f"{actor}: request failed ({type(e).__name__})")) from None
         if response.status_code not in (200, 201):
             try:
                 message = response.json()["error"]["message"]
             except (ValueError, KeyError, TypeError):
                 message = response.text[:200]
-            raise SourceError(f"{actor}: HTTP {response.status_code} {message}")
+            raise SourceError(self._redact(f"{actor}: HTTP {response.status_code} {message}"))
         try:
             data = response.json()
         except ValueError:

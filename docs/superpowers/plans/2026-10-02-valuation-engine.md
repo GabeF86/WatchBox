@@ -221,6 +221,9 @@ def test_norm_strips_punctuation_and_accents():
     ("Rolex 116610LN box only", True),
     ("Rolex Submariner for parts or repair", True),
     ("Rolex Submariner Date 116610LN Black Ceramic Bezel", False),
+    ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", True),
+    ("Rolex Datejust customized with diamonds", True),
+    ("Rolex Datejust gem set bezel", True),
     ("Customer favorite Rolex 116610LN", False),
 ])
 def test_is_junk(title, junk):
@@ -232,6 +235,17 @@ def test_reference_matches_any_text_ignoring_spacing():
     assert reference_matches("116610LN", "Rolex Submariner Date", "116610 LN")
     assert not reference_matches("116610LN", "Rolex Submariner Date", "126610LN")
     assert not reference_matches("", "anything")
+
+
+@pytest.mark.parametrize("ref, text, expected", [
+    ("16610LN", "Rolex 116610LN", False),
+    ("1680", "Rolex 16800", False),
+    ("116610LN", "Submariner 40 116610LN", True),
+    ("116610LN", "Rolex 116610 LN", True),
+    ("2-39-47-01-01-04", "Glash\u00fctte 2-39-47-01-01-04 Sixties", True),
+])
+def test_reference_matches_respects_digit_boundaries(ref, text, expected):
+    assert reference_matches(ref, text) is expected
 
 
 @pytest.mark.parametrize("text, year", [
@@ -251,6 +265,16 @@ def test_year_from_text(text, year):
     ("#80 Rolex Submariner Date 40mm Black Dial 116610LN 2013 Papers", "papers_only"),
     ("116610LN With Box Steel 40mm Black Dial", "box_only"),
     ("Rolex 116610LN no box no papers", "watch_only"),
+    ("2020 Rolex Submariner Date 116610LN 40mm Black Ceramic Stainless Steel Box Paper", "full_set"),
+    ("Rolex Submariner Date 116610LN 40MM Black Oyster Steel Box Paper", "full_set"),
+    ("Rolex 116610LN B+P", "full_set"),
+    ("Rolex 116610LN no box no card", "watch_only"),
+    ("Rolex 116610LN 1 year warranty, pay by credit card", None),
+    ("Rolex 116610LN no box", "watch_only"),
+    ("Rolex 116610LN with box, no papers", "box_only"),
+    ("Rolex 116610LN no box, papers", "papers_only"),
+    ("2018 CARD ROLEX MENS SUBMARINER DATE 116610LN CERAMIC 40MM BLACK STEEL WATCH", None),
+    ("Rolex 116610LN with warranty card", "papers_only"),
     ("2017 Rolex Submariner Date 116610LN Black Dial Oyster Bracelet", None),
 ])
 def test_box_papers_from_title(title, expected):
@@ -263,9 +287,32 @@ def test_box_papers_from_title(title, expected):
     ("New Rolex Submariner 116610LN 40mm", "new"),
     ("Unworn Submariner NOS Full Stickers 114060", "new"),
     ("2017 Rolex Submariner Date 116610LN", None),
+    ("Rolex 116610LN with new strap", None),
+    ("Rolex 116610LN new service just done", None),
+    ("Rolex 116610LN not new", None),
+    ("New York dealer Rolex 116610LN", None),
+    ("New strap Rolex 116610LN", None),
+    ("Rolex 116610LN BNIB sealed", "new"),
+    ("Rolex 116610LN brand new", "new"),
+    ("Rolex 116610LN new old stock", "new"),
+    ("Rolex 116610LN new with tags", "new"),
 ])
 def test_condition_from_title(title, expected):
     assert condition_from_title(title) == expected
+
+
+@pytest.mark.parametrize("text, year", [
+    ("EXCELLENT ROLEX Submariner 116610LN CARD & BOX SERVICED 2023!", None),
+    ("EXCELLENT ROLEX Submariner 116610LN BOX & CARD & 2023 SERVICE CARD!", None),
+    ("Rolex 116610LN B&P 2015 + 2022 SC", 2015),
+    ("Rolex 116610LN 2021 RSC", None),
+    ("Rolex 116610LN polished 2019", None),
+    ("Rolex 116610LN warranty 2024", None),
+    ("Rolex Vintage 1960s Submariner", None),
+    ("Rolex 116610LN 2099", None),
+])
+def test_year_ignores_service_years_decades_and_future(text, year):
+    assert year_from_text(text) == year
 
 
 def test_dial_bracelet_metal_from_title():
@@ -292,7 +339,9 @@ def test_parse_title_returns_all_detail_keys():
 @pytest.mark.parametrize("text, new, expected", [
     ("Used (very good)", False, "very_good"),
     ("Used (good)", False, "good"),
-    ("Like new & unworn", False, "new"),
+    ("Like new & unworn", False, "excellent"),
+    ("Like new & unworn", True, "new"),
+    ("Unworn", False, "new"),
     ("Used (mint)", False, "excellent"),
     ("Used (fair)", False, "fair"),
     (None, True, "new"),
@@ -344,6 +393,7 @@ Expected: FAIL, `ModuleNotFoundError: No module named 'watchbox.valuation.parse'
 """Reads watch details out of listing titles and Chrono24 spec fields. Pure functions."""
 import re
 import unicodedata
+from datetime import date
 
 from .models import DIALS
 
@@ -353,18 +403,22 @@ JUNK_PHRASES = (
     "crown only", "case back", "instruction manual", "manual only", "booklet",
     # not working, not genuine, or not as the factory made it
     "for parts", "parts only", "for repair", "needs repair", "repair only", "replica", "homage",
-    "custom", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd", "dlc",
+    "custom", "customized", "custom made", "aftermarket", "diamonds added", "aftermarket diamond", "iced", "pvd",
+    "dlc", "diamond", "diamonds", "sapphires", "gem set",
 )
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
-                    "full set", "complete set")
+                    "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
 DIAL_RE = re.compile(r"(?<![a-z])(black|blue|white|silver|green|grey|gray|champagne|brown|red)\s+dial")
 STRAP_RE = re.compile(r"(?<![a-z])(oyster|leather|rubber)\s+(bracelet|strap|band)")
 
 
+def _fold(text: str | None) -> str:
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+
+
 def norm(text: str | None) -> str:
-    ascii_text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]", "", ascii_text.lower())
+    return re.sub(r"[^a-z0-9]", "", _fold(text))
 
 
 def _has(text: str, phrase: str) -> bool:
@@ -378,38 +432,78 @@ def is_junk(title: str | None) -> bool:
 
 
 def reference_matches(reference: str | None, *texts: str | None) -> bool:
-    ref = norm(reference)
-    return bool(ref) and any(ref in norm(t) for t in texts if t)
+    """True if the reference appears in any text, tolerating spaces, dashes, dots and slashes inside it but not
+    extra digits around it ("16610LN" must not match "116610LN")."""
+    chars = norm(reference)
+    if not chars:
+        return False
+    pattern = r"(?<![0-9])" + r"[\s\-./]*".join(re.escape(ch) for ch in chars)
+    if chars[-1].isdigit():
+        pattern += r"(?![0-9])"
+    regex = re.compile(pattern)
+    return any(regex.search(_fold(t)) for t in texts if t)
 
 
 def year_from_text(text: str | None) -> int | None:
-    m = YEAR_RE.search(text or "")
-    return int(m.group(1)) if m else None
+    t = (text or "").lower()
+    tokens = re.findall(r"[a-z0-9]+", t)
+    this_year = date.today().year
+    for i, token in enumerate(tokens):
+        if not YEAR_RE.fullmatch(token) or int(token) > this_year:
+            continue
+        neighbours = tokens[max(0, i - 1):i] + tokens[i + 1:i + 2]
+        if any(n.startswith(("serv", "polish")) or n in ("sc", "rsc", "warranty") for n in neighbours):
+            continue
+        return int(token)
+    return None
 
 
 def box_papers_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
-    if _has(t, "watch only") or (_has(t, "no box") and _has(t, "no papers")):
+    if _has(t, "watch only"):
         return "watch_only"
     if any(_has(t, p) for p in FULL_SET_PHRASES):
         return "full_set"
-    box = _has(t, "box") and not _has(t, "no box")
-    papers = (_has(t, "papers") or _has(t, "card") or _has(t, "warranty")) and not _has(t, "no papers")
+    box_neg = _has(t, "no box")
+    papers_neg = any(_has(t, p) for p in ("no papers", "no paper", "no card", "no warranty"))
+    box = _has(t, "box") and not box_neg
+    papers = (_has(t, "papers") and not _has(t, "no papers")) or (_has(t, "paper") and not _has(t, "no paper"))
+    tokens = re.findall(r"[a-z0-9]+", t)
+    if not papers and not _has(t, "no card"):
+        for i, token in enumerate(tokens):
+            if token != "card":
+                continue
+            near = tokens[max(0, i - 3):i] + tokens[i + 1:i + 4]
+            prev = tokens[i - 1] if i else ""
+            if prev in ("warranty", "rolex", "with") or any(n in ("box", "papers", "paper") for n in near):
+                papers = True
+                break
     if box and papers:
         return "full_set"
     if box:
         return "box_only"
     if papers:
         return "papers_only"
+    if box_neg and not papers:
+        return "watch_only"
     return None
+
+
+NEW_PHRASES = ("unworn", "nos", "new old stock", "bnib", "new with tags")
+NOT_NEW_NEXT = ("strap", "band", "bracelet", "york", "service")
 
 
 def condition_from_title(title: str | None) -> str | None:
     t = (title or "").lower()
     if _has(t, "like new") or _has(t, "mint"):
         return "excellent"
-    if any(_has(t, p) for p in ("unworn", "nos", "brand new", "new old stock", "new")):
-        return "new"
+    if not _has(t, "not new"):
+        if any(_has(t, p) for p in NEW_PHRASES) or re.search(
+                rf"(?<![a-z0-9])brand new(?![a-z0-9])(?!\s+({'|'.join(NOT_NEW_NEXT)}))", t):
+            return "new"
+        tokens = re.findall(r"[a-z0-9]+", t)
+        if tokens[:1] == ["new"] and (len(tokens) < 2 or tokens[1] not in NOT_NEW_NEXT):
+            return "new"
     if _has(t, "excellent"):
         return "excellent"
     return None
@@ -464,8 +558,8 @@ def parse_title(title: str | None) -> dict:
 
 # Chrono24 spec fields --------------------------------------------------------
 
-_C24_CONDITION = (  # order matters: "unworn" before "like new" before "new"; "very good" before "good"
-    ("unworn", "new"), ("like new", "excellent"), ("mint", "excellent"), ("new", "new"),
+_C24_CONDITION = (  # order matters: "like new" before "unworn" before "new"; "very good" before "good"
+    ("like new", "excellent"), ("unworn", "new"), ("mint", "excellent"), ("new", "new"),
     ("very good", "very_good"), ("good", "good"), ("fair", "fair"), ("poor", "fair"), ("incomplete", "fair"),
 )
 _C24_SCOPE = {"WithBoxAndPapers": "full_set", "WithBox": "box_only", "WithPapers": "papers_only",
@@ -535,7 +629,7 @@ def metal_from_c24(text: str | None) -> str | None:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_parse.py -q`
-Expected: `42 passed` (counting each parametrized case).
+Expected: `79 passed` (counting each parametrized case).
 
 - [ ] **Step 5: Commit**
 
@@ -577,7 +671,8 @@ import pytest
 from watchbox.valuation.models import WatchQuery
 from watchbox.valuation.sources.apify import ApifyClient, SourceError
 from watchbox.valuation.sources.chrono24 import ApifyChrono24Source, search_url
-from watchbox.valuation.sources.ebay_sold import ApifyEbaySoldSource, ebay_query, parse_sold_date
+from watchbox.valuation.sources.ebay_sold import (ApifyEbaySoldSource, comparable_from_row, ebay_query,
+                                                  parse_sold_date)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EBAY_ROWS = json.loads((FIXTURES / "ebay_sold_116610ln.json").read_text())
@@ -630,6 +725,31 @@ def test_ebay_query_and_payload():
 def test_parse_sold_date():
     assert parse_sold_date("Sold  Oct 1, 2026") == date(2026, 10, 1)
     assert parse_sold_date(None) is None
+    assert parse_sold_date("Sold  Sep 30, 2026") == date(2026, 9, 30)
+    assert parse_sold_date("Sold  Feb 30, 2026") is None
+
+
+@pytest.mark.parametrize("title, cond, expected", [
+    ("Rolex 116610LN", "Brand New", "new"),
+    ("Rolex 116610LN", "New with tags", "new"),
+    ("Rolex 116610LN", "New without tags", "new"),
+    ("New Rolex 116610LN", "Pre-Owned", None),
+    ("Rolex 116610LN brand new", "Pre-Owned", None),
+    ("Rolex 116610LN mint", "Pre-Owned", "excellent"),
+    ("Rolex 116610LN", "Pre-Owned", None),
+])
+def test_ebay_row_condition_overrides_title(title, cond, expected):
+    row = {"title": title, "priceValue": 10000, "currency": "USD", "condition": cond}
+    assert comparable_from_row(row).condition == expected
+
+
+def test_client_redacts_token_from_errors():
+    def handler(request):
+        return httpx.Response(500, text="oops secret-token leaked")
+
+    with pytest.raises(SourceError) as exc:
+        client(handler).run("memo23/x", {})
+    assert "secret-token" not in str(exc.value) and "***" in str(exc.value)
 
 
 def test_ebay_source_parses_fixture():
@@ -654,7 +774,7 @@ def test_chrono24_source_parses_fixture_details():
     assert first.reference == "126610LN" and "116610LN" in first.title  # mislabelled reference, real one in the title
     assert comps[1].box_papers == "full_set" and comps[1].condition == "very_good"
     assert comps[5].year == 2014  # "2014 (Approximation)"
-    assert comps[10].condition == "new"  # "Like new & unworn"
+    assert comps[10].condition == "excellent"  # "Like new & unworn" (not flagged conditionNew)
 ```
 
 - [ ] **Step 3: Run to verify failure**
@@ -679,6 +799,9 @@ class SourceError(Exception):
 
 
 class ApifyClient:
+    def _redact(self, message: str) -> str:
+        return message.replace(self._token, "***") if self._token else message
+
     def __init__(self, token: str, http: httpx.Client | None = None, timeout_s: int = 300):
         self._token = token
         self._http = http or httpx.Client()
@@ -691,13 +814,13 @@ class ApifyClient:
                                        headers={"Authorization": f"Bearer {self._token}"},
                                        timeout=self._timeout_s + 30)
         except httpx.HTTPError as e:
-            raise SourceError(f"{actor}: request failed ({type(e).__name__})") from None
+            raise SourceError(self._redact(f"{actor}: request failed ({type(e).__name__})")) from None
         if response.status_code not in (200, 201):
             try:
                 message = response.json()["error"]["message"]
             except (ValueError, KeyError, TypeError):
                 message = response.text[:200]
-            raise SourceError(f"{actor}: HTTP {response.status_code} {message}")
+            raise SourceError(self._redact(f"{actor}: HTTP {response.status_code} {message}"))
         try:
             data = response.json()
         except ValueError:
@@ -711,7 +834,7 @@ class ApifyClient:
 ```python
 """eBay sold listings (last 90 days) via the memo23 eBay scraper on Apify."""
 import re
-from datetime import date, datetime
+from datetime import date
 
 from ..models import Comparable, WatchQuery
 from ..parse import parse_title
@@ -719,6 +842,9 @@ from .apify import ApifyClient
 
 ACTOR = "memo23/ebay-search-scraper-ppe"
 WRISTWATCHES = "31387"
+MONTHS = {m: i for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), start=1)}
+NEW_CONDITIONS = ("brand new", "new with tags", "new without tags")
 SOLD_DATE_RE = re.compile(r"([A-Z][a-z]{2}) (\d{1,2}), (\d{4})")
 
 
@@ -733,9 +859,12 @@ def ebay_query(q: WatchQuery) -> str:
 
 def parse_sold_date(text: str | None) -> date | None:
     m = SOLD_DATE_RE.search(text or "")
-    if not m:
+    if not m or m.group(1) not in MONTHS:
         return None
-    return datetime.strptime(f"{m.group(1)} {m.group(2)} {m.group(3)}", "%b %d %Y").date()
+    try:
+        return date(int(m.group(3)), MONTHS[m.group(1)], int(m.group(2)))
+    except ValueError:
+        return None
 
 
 def comparable_from_row(row: dict) -> Comparable | None:
@@ -745,9 +874,15 @@ def comparable_from_row(row: dict) -> Comparable | None:
     if not isinstance(price, (int, float)) or price <= 0 or (row.get("currency") or "USD") != "USD":
         return None
     title = row.get("title") or ""
+    details = parse_title(title)
+    listed = (row.get("condition") or "").strip().lower()
+    if listed in NEW_CONDITIONS:
+        details["condition"] = "new"
+    elif listed and details["condition"] == "new":
+        details["condition"] = None  # eBay lists it as used, so a "new" in the title is not about the watch
     return Comparable(source="ebay", kind="sold", price_usd=float(price), date=parse_sold_date(row.get("soldDate")),
                       title=title, url=row.get("url") or "", best_offer=bool(row.get("bestOfferAccepted")),
-                      **parse_title(title))
+                      **details)
 
 
 class ApifyEbaySoldSource:
@@ -824,7 +959,7 @@ class ApifyChrono24Source:
 - [ ] **Step 5: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_sources.py -q`
-Expected: `8 passed`
+Expected: `16 passed`
 
 - [ ] **Step 6: Commit**
 
