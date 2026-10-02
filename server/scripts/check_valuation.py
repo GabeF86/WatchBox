@@ -15,7 +15,8 @@ from watchbox.valuation.service import ValuationService  # noqa: E402
 
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(args) != 1 or not args[0].isdigit():
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    if len(args) != 1 or not args[0].isdigit() or any(f != "--fetch" for f in flags):
         sys.exit("usage: python scripts/check_valuation.py <watch id> [--fetch]")
     settings = load_settings()
     conn = db.connect(settings.db_path)
@@ -27,7 +28,8 @@ def main() -> None:
         if not isinstance(provider, ValuationService):
             sys.exit("--fetch needs APIFY_TOKEN set (and PRICE_SOURCE auto or comps)")
         print("fetching comparables (takes a minute or two)...")
-        provider.refresh_watch(conn, watch)
+        if not provider.refresh_watch(conn, watch):
+            print("fetch failed or no usable data; showing stored comparables")
     q = watch.query
     comps = db.load_comparables(conn, watch.id)
     print(f"\n{watch.brand} {watch.model} {q.reference or '(no reference)'} | {q.condition}, {q.box_papers}, "

@@ -1980,7 +1980,7 @@ LEFT JOIN prices p ON p.id = (
     SELECT id FROM prices WHERE watch_id = w.id ORDER BY fetched_at DESC, id DESC LIMIT 1
 )
 LEFT JOIN valuations v ON v.id = (
-    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY as_of DESC, id DESC LIMIT 1
+    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY id DESC LIMIT 1
 )
 """
 
@@ -2183,7 +2183,7 @@ def _valuation_dict(row: sqlite3.Row) -> dict:
 
 
 def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
-    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY as_of DESC, id DESC LIMIT 1",
+    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY id DESC LIMIT 1",
                        (watch_id,)).fetchone()
     return _valuation_dict(row) if row else None
 
@@ -2191,9 +2191,14 @@ def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
 def latest_valuations(conn: sqlite3.Connection) -> dict[int, dict]:
     rows = conn.execute("""
         SELECT * FROM valuations v WHERE v.id = (
-            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY as_of DESC, id DESC LIMIT 1)
+            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY id DESC LIMIT 1)
     """).fetchall()
     return {r["watch_id"]: _valuation_dict(r) for r in rows}
+
+
+def latest_comparables_time(conn: sqlite3.Connection, watch_id: int) -> str | None:
+    """When the watch's newest stored comparables were fetched: the data date of a valuation made from them."""
+    return conn.execute("SELECT MAX(fetched_at) FROM comparables WHERE watch_id = ?", (watch_id,)).fetchone()[0]
 
 
 def latest_fetch_time(conn: sqlite3.Connection) -> str | None:
@@ -2232,7 +2237,7 @@ from datetime import date
 import pytest
 
 from watchbox import db, refresh
-from watchbox.valuation.models import Comparable
+from watchbox.valuation.models import Comparable, Valuation
 from watchbox.valuation.service import ValuationService
 from watchbox.valuation.sources.apify import SourceError
 
@@ -2356,6 +2361,33 @@ def test_expected_source_errors_are_logged_without_a_trace(conn, caplog):
     assert service.refresh_watch(conn, db.get_watch(conn, wid))
     records = [r for r in caplog.records if "chrono24" in r.getMessage()]
     assert records and not any(r.exc_info for r in records)
+
+
+def test_valuations_are_dated_by_their_comparables_so_recompute_is_not_fresh_data(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay", 10000.0))])
+    service.refresh_watch(conn, db.get_watch(conn, wid))
+    fetched_at = db.latest_comparables_time(conn, wid)
+    assert fetched_at and db.latest_valuation(conn, wid)["as_of"] == fetched_at
+    last_fetch = db.latest_fetch_time(conn)
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    latest = db.latest_valuation(conn, wid)
+    assert latest["as_of"] == fetched_at and db.latest_fetch_time(conn) == last_fetch
+    assert latest["estimate_usd"] == db.get_watch(conn, wid).price_usd < 10000.0  # the recomputed one
+
+
+def test_recompute_wins_over_an_older_valuation_dated_later(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    db.replace_comparables(conn, wid, "ebay", comps("ebay", 10000.0), fetched_at="2026-10-01T00:00:00+00:00")
+    service = ValuationService([])
+    assert service.recompute(conn, wid)
+    first = db.latest_valuation(conn, wid)
+    db.add_valuation(conn, wid, Valuation(**{**{k: first[k] for k in db.VALUATION_COLUMNS}, "factors": {}}),
+                     as_of="2026-10-02T00:00:00+00:00")  # e.g. stored by an older version, dated "now"
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    assert db.latest_valuation(conn, wid)["estimate_usd"] < first["estimate_usd"]
 ```
 
 Append to `server/tests/test_providers.py`:
@@ -2460,7 +2492,8 @@ class ValuationService:
             if valuation is None:
                 log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
                 return False
-            db.add_valuation(conn, watch.id, valuation)
+            # dated by its data, so a recompute doesn't look like (or count as) a fresh fetch
+            db.add_valuation(conn, watch.id, valuation, as_of=db.latest_comparables_time(conn, watch.id))
         except Exception:  # one watch failing must not stop the others
             log.exception("valuation failed for watch %s", watch.id)
             return False
@@ -2701,6 +2734,22 @@ def test_reference_edit_refetches(client, service):
     post(client, "/watches")
     post(client, "/watches/1", reference="126610LN")
     assert service.refreshed == [1, 1] and service.recomputed == []
+
+
+def test_unicode_digit_year_is_rejected_with_a_friendly_error(client):
+    r = post(client, "/watches", year="²015")
+    assert "Year%20must%20be%20between" in r.headers["location"]
+
+
+def test_recompute_failure_still_redirects(client, service, monkeypatch):
+    post(client, "/watches")
+
+    def boom(conn, watch_id):
+        raise RuntimeError("engine bug")
+
+    monkeypatch.setattr(service, "recompute", boom)
+    r = post(client, "/watches/1", condition="good")
+    assert r.status_code == 303 and r.headers["location"] == "/"
 ```
 
 Append to `server/tests/test_display.py`:
@@ -2757,7 +2806,7 @@ def parse_year(raw: str) -> int | None:
     if not raw:
         return None
     this_year = date.today().year
-    if not raw.isdigit() or not 1900 <= int(raw) <= this_year:
+    if not (raw.isascii() and raw.isdigit()) or not 1900 <= int(raw) <= this_year:
         raise ValueError(f"Year must be between 1900 and {this_year}")
     return int(raw)
 
@@ -2837,7 +2886,10 @@ def parse_details(year: str, condition: str, box_papers: str, dial: str, bracele
         if before.priced_as != after.priced_as or not hasattr(provider, "recompute"):
             background.add_task(refresh_one, watch_id)
         else:
-            provider.recompute(conn, watch_id)  # only details changed: re-value from stored comparables
+            try:  # only details changed: re-value from stored comparables
+                provider.recompute(conn, watch_id)
+            except Exception:
+                log.exception("recompute failed for watch %s", watch_id)
         return redirect("/")
 ```
 
@@ -2917,7 +2969,7 @@ In `server/watchbox/templates/base.html`, add these CSS rules just before `</sty
 - [ ] **Step 7: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass, including the 10 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
+Expected: all pass, including the 12 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
 
 - [ ] **Step 8: Commit**
 
@@ -2954,7 +3006,8 @@ from watchbox.valuation.service import ValuationService  # noqa: E402
 
 def main() -> None:
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(args) != 1 or not args[0].isdigit():
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    if len(args) != 1 or not args[0].isdigit() or any(f != "--fetch" for f in flags):
         sys.exit("usage: python scripts/check_valuation.py <watch id> [--fetch]")
     settings = load_settings()
     conn = db.connect(settings.db_path)
@@ -2966,7 +3019,8 @@ def main() -> None:
         if not isinstance(provider, ValuationService):
             sys.exit("--fetch needs APIFY_TOKEN set (and PRICE_SOURCE auto or comps)")
         print("fetching comparables (takes a minute or two)...")
-        provider.refresh_watch(conn, watch)
+        if not provider.refresh_watch(conn, watch):
+            print("fetch failed or no usable data; showing stored comparables")
     q = watch.query
     comps = db.load_comparables(conn, watch.id)
     print(f"\n{watch.brand} {watch.model} {q.reference or '(no reference)'} | {q.condition}, {q.box_papers}, "

@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from watchbox import db, refresh
-from watchbox.valuation.models import Comparable
+from watchbox.valuation.models import Comparable, Valuation
 from watchbox.valuation.service import ValuationService
 from watchbox.valuation.sources.apify import SourceError
 
@@ -127,3 +127,30 @@ def test_expected_source_errors_are_logged_without_a_trace(conn, caplog):
     assert service.refresh_watch(conn, db.get_watch(conn, wid))
     records = [r for r in caplog.records if "chrono24" in r.getMessage()]
     assert records and not any(r.exc_info for r in records)
+
+
+def test_valuations_are_dated_by_their_comparables_so_recompute_is_not_fresh_data(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay", 10000.0))])
+    service.refresh_watch(conn, db.get_watch(conn, wid))
+    fetched_at = db.latest_comparables_time(conn, wid)
+    assert fetched_at and db.latest_valuation(conn, wid)["as_of"] == fetched_at
+    last_fetch = db.latest_fetch_time(conn)
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    latest = db.latest_valuation(conn, wid)
+    assert latest["as_of"] == fetched_at and db.latest_fetch_time(conn) == last_fetch
+    assert latest["estimate_usd"] == db.get_watch(conn, wid).price_usd < 10000.0  # the recomputed one
+
+
+def test_recompute_wins_over_an_older_valuation_dated_later(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    db.replace_comparables(conn, wid, "ebay", comps("ebay", 10000.0), fetched_at="2026-10-01T00:00:00+00:00")
+    service = ValuationService([])
+    assert service.recompute(conn, wid)
+    first = db.latest_valuation(conn, wid)
+    db.add_valuation(conn, wid, Valuation(**{**{k: first[k] for k in db.VALUATION_COLUMNS}, "factors": {}}),
+                     as_of="2026-10-02T00:00:00+00:00")  # e.g. stored by an older version, dated "now"
+    db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None, box_papers="watch_only")
+    assert service.recompute(conn, wid)
+    assert db.latest_valuation(conn, wid)["estimate_usd"] < first["estimate_usd"]

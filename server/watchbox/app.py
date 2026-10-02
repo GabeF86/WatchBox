@@ -53,7 +53,7 @@ def parse_year(raw: str) -> int | None:
     if not raw:
         return None
     this_year = date.today().year
-    if not raw.isdigit() or not 1900 <= int(raw) <= this_year:
+    if not (raw.isascii() and raw.isdigit()) or not 1900 <= int(raw) <= this_year:
         raise ValueError(f"Year must be between 1900 and {this_year}")
     return int(raw)
 
@@ -140,7 +140,8 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def check_and_refresh_if_stale() -> None:
         conn = db.connect(settings.db_path)
         try:
-            stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours, datetime.now(timezone.utc))
+            stale = refresh.needs_refresh(db.latest_fetch_time(conn), settings.refresh_hours,
+                                          datetime.now(timezone.utc))
         finally:
             conn.close()
         if stale:
@@ -161,7 +162,7 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    app = FastAPI(title="WatchBox v0", lifespan=lifespan)
+    app = FastAPI(title="WatchBox", lifespan=lifespan)
 
     def render(request: Request, name: str, **context) -> HTMLResponse:
         context |= {"format_price": format_price, "time_ago": time_ago, "slots": SLOTS,
@@ -175,8 +176,9 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def index(request: Request, conn: Conn, error: str | None = None):
         watches = db.list_watches(conn)
         priced = [w for w in watches if w.price_usd is not None]
-        return render(request, "index.html", watches=watches, valuations=db.latest_valuations(conn), total=sum(w.price_usd for w in priced),
-                      priced_count=len(priced), error=error, fw=None, action="/watches", submit_label="Add watch")
+        return render(request, "index.html", watches=watches, valuations=db.latest_valuations(conn),
+                      total=sum(w.price_usd for w in priced), priced_count=len(priced), error=error, fw=None,
+                      action="/watches", submit_label="Add watch")
 
     @app.post("/watches")
     def create_watch(background: BackgroundTasks, conn: Conn, brand: FormStr, model: FormStr,
@@ -228,7 +230,10 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
         if before.priced_as != after.priced_as or not hasattr(provider, "recompute"):
             background.add_task(refresh_one, watch_id)
         else:
-            provider.recompute(conn, watch_id)  # only details changed: re-value from stored comparables
+            try:  # only details changed: re-value from stored comparables
+                provider.recompute(conn, watch_id)
+            except Exception:
+                log.exception("recompute failed for watch %s", watch_id)
         return redirect("/")
 
     @app.post("/watches/{watch_id}/delete")

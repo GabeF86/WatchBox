@@ -58,7 +58,8 @@ class ValuationService:
             if valuation is None:
                 log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
                 return False
-            db.add_valuation(conn, watch.id, valuation)
+            # dated by its data, so a recompute doesn't look like (or count as) a fresh fetch
+            db.add_valuation(conn, watch.id, valuation, as_of=db.latest_comparables_time(conn, watch.id))
         except Exception:  # one watch failing must not stop the others
             log.exception("valuation failed for watch %s", watch.id)
             return False

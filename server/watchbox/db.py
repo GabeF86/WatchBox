@@ -104,7 +104,7 @@ LEFT JOIN prices p ON p.id = (
     SELECT id FROM prices WHERE watch_id = w.id ORDER BY fetched_at DESC, id DESC LIMIT 1
 )
 LEFT JOIN valuations v ON v.id = (
-    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY as_of DESC, id DESC LIMIT 1
+    SELECT id FROM valuations WHERE watch_id = w.id ORDER BY id DESC LIMIT 1
 )
 """
 
@@ -307,7 +307,7 @@ def _valuation_dict(row: sqlite3.Row) -> dict:
 
 
 def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
-    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY as_of DESC, id DESC LIMIT 1",
+    row = conn.execute("SELECT * FROM valuations WHERE watch_id = ? ORDER BY id DESC LIMIT 1",
                        (watch_id,)).fetchone()
     return _valuation_dict(row) if row else None
 
@@ -315,9 +315,14 @@ def latest_valuation(conn: sqlite3.Connection, watch_id: int) -> dict | None:
 def latest_valuations(conn: sqlite3.Connection) -> dict[int, dict]:
     rows = conn.execute("""
         SELECT * FROM valuations v WHERE v.id = (
-            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY as_of DESC, id DESC LIMIT 1)
+            SELECT id FROM valuations WHERE watch_id = v.watch_id ORDER BY id DESC LIMIT 1)
     """).fetchall()
     return {r["watch_id"]: _valuation_dict(r) for r in rows}
+
+
+def latest_comparables_time(conn: sqlite3.Connection, watch_id: int) -> str | None:
+    """When the watch's newest stored comparables were fetched: the data date of a valuation made from them."""
+    return conn.execute("SELECT MAX(fetched_at) FROM comparables WHERE watch_id = ?", (watch_id,)).fetchone()[0]
 
 
 def latest_fetch_time(conn: sqlite3.Connection) -> str | None:

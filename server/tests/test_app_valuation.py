@@ -116,3 +116,19 @@ def test_reference_edit_refetches(client, service):
     post(client, "/watches")
     post(client, "/watches/1", reference="126610LN")
     assert service.refreshed == [1, 1] and service.recomputed == []
+
+
+def test_unicode_digit_year_is_rejected_with_a_friendly_error(client):
+    r = post(client, "/watches", year="²015")
+    assert "Year%20must%20be%20between" in r.headers["location"]
+
+
+def test_recompute_failure_still_redirects(client, service, monkeypatch):
+    post(client, "/watches")
+
+    def boom(conn, watch_id):
+        raise RuntimeError("engine bug")
+
+    monkeypatch.setattr(service, "recompute", boom)
+    r = post(client, "/watches/1", condition="good")
+    assert r.status_code == 303 and r.headers["location"] == "/"
