@@ -1847,6 +1847,23 @@ def test_old_databases_are_migrated(tmp_path):
         assert db.get_watch(conn, w.id).price_usd == 11500.0
     finally:
         conn.close()
+
+
+def test_dial_change_without_reference_clears_market_data_but_not_with_one(conn):
+    no_ref = db.add_watch(conn, "Glashütte Original", "Sixties", "", 3, None, dial="green")
+    db.add_valuation(conn, no_ref, val())
+    db.update_watch(conn, no_ref, "Glashütte Original", "Sixties", "", 3, None, dial="blue")
+    assert db.latest_valuation(conn, no_ref) is None
+    with_ref = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None, dial="black")
+    db.add_valuation(conn, with_ref, val())
+    db.update_watch(conn, with_ref, "Rolex", "Submariner Date", "116610LN", 1, None, dial="blue")
+    assert db.latest_valuation(conn, with_ref)
+
+
+def test_connections_use_wal_and_indexes(conn):
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_valuations_watch", "idx_prices_watch", "idx_comparables_watch"} <= names
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1932,6 +1949,9 @@ CREATE TABLE IF NOT EXISTS valuations (
     failed_sources TEXT NOT NULL DEFAULT '',
     as_of TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_valuations_watch ON valuations(watch_id, as_of);
+CREATE INDEX IF NOT EXISTS idx_prices_watch ON prices(watch_id, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_comparables_watch ON comparables(watch_id, source);
 """
 
 # Columns added after a table was first released: (table, column, declaration).
@@ -2000,15 +2020,23 @@ class Watch:
         return self.price_reference or self.reference
 
     @property
-    def identity(self) -> tuple:
+    def priced_as(self) -> tuple:
         """What the market data depends on; when it changes, prices must be fetched again."""
-        return (self.brand, self.model, self.reference, self.price_reference)
+        return priced_as(self.brand, self.model, self.reference, self.price_reference, self.dial, self.metal)
 
     @property
     def query(self) -> WatchQuery:
         return WatchQuery(brand=self.brand, model=self.model, reference=self.pricing_reference, year=self.year,
                           condition=self.condition, box_papers=self.box_papers, dial=self.dial,
                           bracelet=self.bracelet, metal=self.metal)
+
+
+def priced_as(brand: str, model: str, reference: str, price_reference: str | None, dial: str | None,
+              metal: str | None) -> tuple:
+    """Without a reference, searches use the model (and dial and metal), so those matter too."""
+    no_ref = not (price_reference or reference)
+    return (brand, reference, price_reference, model if no_ref else None, dial if no_ref else None,
+            metal if no_ref else None)
 
 
 class SlotTakenError(Exception):
@@ -2024,8 +2052,10 @@ def now_iso() -> str:
 def connect(path: str | PathLike) -> sqlite3.Connection:
     # FastAPI may run a dependency and its endpoint on different threads; each
     # connection is still used by one request at a time.
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # The scheduler and web requests write from different threads: wait for locks, and let reads run alongside.
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     for table, column, decl in MIGRATIONS:
@@ -2074,7 +2104,8 @@ def add_watch(conn, brand: str, model: str, reference: str, slot: int | None, ni
     return cur.lastrowid
 
 
-def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+def _clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+    """Deletes the watch's prices, comparables and valuations; the caller commits."""
     for table in ("prices", "comparables", "valuations"):
         conn.execute(f"DELETE FROM {table} WHERE watch_id = ?", (watch_id,))
 
@@ -2082,7 +2113,7 @@ def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
 def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, slot: int | None, nickname: str | None,
                  price_reference: str | None = None, **details) -> None:
     d = DETAIL_DEFAULTS | details
-    old = conn.execute("SELECT brand, model, reference, price_reference FROM watches WHERE id = ?",
+    old = conn.execute("SELECT brand, model, reference, price_reference, dial, metal FROM watches WHERE id = ?",
                        (watch_id,)).fetchone()
     _write(
         conn,
@@ -2093,12 +2124,8 @@ def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, sl
         slot,
         commit=False,
     )
-    if old:
-        priced_as_changed = (old["brand"], old["reference"], old["price_reference"]) != (brand, reference,
-                                                                                       price_reference)
-        model_matters = not (price_reference or reference)  # without a reference, searches use the model
-        if priced_as_changed or (model_matters and old["model"] != model):
-            clear_market_data(conn, watch_id)
+    if old and priced_as(*old) != priced_as(brand, model, reference, price_reference, d["dial"], d["metal"]):
+        _clear_market_data(conn, watch_id)
     conn.commit()
 
 
@@ -2178,7 +2205,7 @@ def latest_fetch_time(conn: sqlite3.Connection) -> str | None:
 - [ ] **Step 4: Run the new tests and the whole suite**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass. That includes the 7 new tests in `test_db_valuation.py` and every existing test. Existing tests that call `add_watch`/`update_watch` positionally still work, because the detail arguments are keyword-only with defaults.
+Expected: all pass. That includes the 9 new tests in `test_db_valuation.py` and every existing test. Existing tests that call `add_watch`/`update_watch` positionally still work, because the detail arguments are keyword-only with defaults.
 
 - [ ] **Step 5: Commit**
 
@@ -2193,7 +2220,7 @@ git commit -m "feat: store watch details, comparables and valuations"
 
 **Files:**
 - Create: `server/watchbox/valuation/service.py`
-- Modify: `server/watchbox/refresh.py`, `server/watchbox/config.py`, `server/watchbox/providers.py`, `server/tests/test_providers.py`
+- Modify: `server/watchbox/refresh.py`, `server/watchbox/config.py`, `server/watchbox/providers.py`, `server/watchbox/app.py`, `server/tests/test_providers.py`, `server/tests/test_app.py`
 - Test: `server/tests/test_val_service.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -2284,6 +2311,51 @@ def test_result_is_discarded_if_watch_changes_during_fetch(conn):
 
     assert not ValuationService([EditingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
     assert db.load_comparables(conn, wid) == []
+
+
+def test_model_rename_with_a_reference_during_fetch_keeps_the_result(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None)
+
+    class RenamingSource(FakeSource):
+        def fetch(self, query):
+            db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None)
+            return comps("ebay")
+
+    assert ValuationService([RenamingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
+    assert len(db.load_comparables(conn, wid)) == 6
+
+
+def test_one_watch_failing_to_value_does_not_stop_the_others(conn, monkeypatch):
+    from watchbox.valuation import service as service_module
+    first = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    second = db.add_watch(conn, "Rolex", "Submariner Date", "126610LN", 2, None)
+    real_value = service_module.value
+
+    def flaky_value(query, *args, **kwargs):
+        if query.reference == "116610LN":
+            raise RuntimeError("boom")
+        return real_value(query, *args, **kwargs)
+
+    monkeypatch.setattr(service_module, "value", flaky_value)
+    service = ValuationService([FakeSource("ebay", comps("ebay"))])
+    assert refresh.refresh_all(conn, service) == 1
+    assert db.latest_valuation(conn, first) is None and db.latest_valuation(conn, second)
+
+
+def test_unexpected_source_errors_are_logged_with_a_trace_and_marked_failed(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", KeyError("bug"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    assert db.latest_valuation(conn, wid)["failed_sources"] == ("chrono24",)
+    assert any(r.exc_info and "chrono24" in r.getMessage() for r in caplog.records)
+
+
+def test_expected_source_errors_are_logged_without_a_trace(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", SourceError("down"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    records = [r for r in caplog.records if "chrono24" in r.getMessage()]
+    assert records and not any(r.exc_info for r in records)
 ```
 
 Append to `server/tests/test_providers.py`:
@@ -2304,9 +2376,25 @@ In the same file, change the `settings()` helper's base dict to include `apify_t
                 watchapi_token="", price_source="auto", apify_token="")
 ```
 
+Append to `server/tests/test_app.py`:
+```python
+
+
+def test_run_exclusive_skips_when_already_running():
+    import threading
+
+    from watchbox.app import run_exclusive
+    lock, calls = threading.Lock(), []
+    assert run_exclusive(lock, lambda: calls.append(1)) is True
+    assert not lock.locked()
+    with lock:
+        assert run_exclusive(lock, lambda: calls.append(2)) is False
+    assert calls == [1]
+```
+
 - [ ] **Step 2: Run to verify failure**
 
-Run: `server/.venv/bin/pytest server/tests/test_val_service.py server/tests/test_providers.py -q`
+Run: `server/.venv/bin/pytest server/tests/test_val_service.py server/tests/test_providers.py server/tests/test_app.py -q`
 Expected: FAIL (`ModuleNotFoundError: ...service`, and `TypeError` for `apify_token`).
 
 - [ ] **Step 3: Implement `server/watchbox/valuation/service.py`**
@@ -2318,6 +2406,7 @@ import sqlite3
 
 from .. import db
 from .engine import value
+from .sources.apify import SourceError
 
 log = logging.getLogger("watchbox.valuation")
 
@@ -2336,13 +2425,16 @@ class ValuationService:
         for source in self._sources:
             try:
                 fetched[source.name] = source.fetch(query)
-            except Exception as e:  # one source failing must not stop the other
+            except SourceError as e:  # one source failing must not stop the other
                 log.warning("%s failed for %s %s: %s", source.name, watch.brand, query.reference or watch.model, e)
+                failed.append(source.name)
+            except Exception:  # a bug, not an outage: keep the stack trace
+                log.exception("%s failed for %s %s", source.name, watch.brand, query.reference or watch.model)
                 failed.append(source.name)
         if not fetched:
             return False
         current = db.get_watch(conn, watch.id)
-        if current is None or current.identity != watch.identity:
+        if current is None or current.priced_as != watch.priced_as:
             log.info("watch %s changed or was deleted during fetch; discarding result", watch.id)
             return False
         try:
@@ -2362,12 +2454,16 @@ class ValuationService:
         return self._value_and_store(conn, watch, last["failed_sources"] if last else ())
 
     def _value_and_store(self, conn: sqlite3.Connection, watch: db.Watch, failed: tuple[str, ...]) -> bool:
-        valuation = value(watch.query, db.load_comparables(conn, watch.id),
-                          estimated_reference=bool(watch.price_reference), failed_sources=failed)
-        if valuation is None:
-            log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+        try:
+            valuation = value(watch.query, db.load_comparables(conn, watch.id),
+                              estimated_reference=bool(watch.price_reference), failed_sources=failed)
+            if valuation is None:
+                log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+                return False
+            db.add_valuation(conn, watch.id, valuation)
+        except Exception:  # one watch failing must not stop the others
+            log.exception("valuation failed for watch %s", watch.id)
             return False
-        db.add_valuation(conn, watch.id, valuation)
         log.info("%s %s -> $%.0f (%s confidence, tier %d, %d eBay + %d Chrono24)", watch.brand,
                  watch.query.reference or watch.model, valuation.estimate_usd, valuation.confidence,
                  valuation.tier, valuation.n_ebay, valuation.n_c24)
@@ -2428,15 +2524,50 @@ def make_provider(settings: Settings) -> PriceProvider | ValuationService | None
     return None
 ```
 
+- [ ] **Step 5b: Keep refreshes from overlapping in `server/watchbox/app.py`**
+
+Add `import threading`. After the `FormStr` line add:
+```python
+_refresh_lock = threading.Lock()  # the scheduler and the "refresh all" button must not overlap
+```
+Before `run_scheduled` add:
+```python
+def run_exclusive(lock: threading.Lock, fn) -> bool:
+    """Runs fn unless another holder of lock is already running; returns whether it ran."""
+    if not lock.acquire(blocking=False):
+        log.info("refresh already running; skipping")
+        return False
+    try:
+        fn()
+    finally:
+        lock.release()
+    return True
+```
+And replace `refresh_everything` inside `create_app` with:
+```python
+    def refresh_everything() -> None:
+        if provider is None:
+            return
+
+        def run() -> None:
+            conn = db.connect(settings.db_path)
+            try:
+                refresh.refresh_all(conn, provider)
+            finally:
+                conn.close()
+
+        run_exclusive(_refresh_lock, run)
+```
+
 - [ ] **Step 6: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass (5 new service tests and 1 new provider test).
+Expected: all pass (9 new service tests, 1 new provider test and 1 new app test).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server/watchbox/valuation/service.py server/watchbox/refresh.py server/watchbox/config.py server/watchbox/providers.py server/tests/test_val_service.py server/tests/test_providers.py
+git add server/watchbox/valuation/service.py server/watchbox/refresh.py server/watchbox/config.py server/watchbox/providers.py server/watchbox/app.py server/tests/test_val_service.py server/tests/test_providers.py server/tests/test_app.py
 git commit -m "feat: valuation service wired in as the comps price source"
 ```
 
@@ -2679,7 +2810,7 @@ def parse_details(year: str, condition: str, box_papers: str, dial: str, bracele
         except (ValueError, db.SlotTakenError) as e:
             return redirect(f"/watches/{watch_id}/edit", str(e))
         after = db.get_watch(conn, watch_id)
-        if before.identity != after.identity or not hasattr(provider, "recompute"):
+        if before.priced_as != after.priced_as or not hasattr(provider, "recompute"):
             background.add_task(refresh_one, watch_id)
         else:
             provider.recompute(conn, watch_id)  # only details changed: re-value from stored comparables

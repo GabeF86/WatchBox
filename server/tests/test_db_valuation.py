@@ -109,3 +109,20 @@ def test_old_databases_are_migrated(tmp_path):
         assert db.get_watch(conn, w.id).price_usd == 11500.0
     finally:
         conn.close()
+
+
+def test_dial_change_without_reference_clears_market_data_but_not_with_one(conn):
+    no_ref = db.add_watch(conn, "Glashütte Original", "Sixties", "", 3, None, dial="green")
+    db.add_valuation(conn, no_ref, val())
+    db.update_watch(conn, no_ref, "Glashütte Original", "Sixties", "", 3, None, dial="blue")
+    assert db.latest_valuation(conn, no_ref) is None
+    with_ref = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None, dial="black")
+    db.add_valuation(conn, with_ref, val())
+    db.update_watch(conn, with_ref, "Rolex", "Submariner Date", "116610LN", 1, None, dial="blue")
+    assert db.latest_valuation(conn, with_ref)
+
+
+def test_connections_use_wal_and_indexes(conn):
+    assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+    assert {"idx_valuations_watch", "idx_prices_watch", "idx_comparables_watch"} <= names

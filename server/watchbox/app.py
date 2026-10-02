@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 SLOTS = range(1, 9)
 SOURCE_LABELS = {"thewatchapi": "TheWatchAPI asking prices", "ebay": "median eBay asking price"}
 FormStr = Annotated[str, Form()]
+_refresh_lock = threading.Lock()  # the scheduler and the "refresh all" button must not overlap
 
 
 def parse_slot(raw: str) -> int | None:
@@ -47,6 +49,18 @@ def validate_required(brand: str, model: str) -> None:
 def redirect(path: str, error: str | None = None) -> RedirectResponse:
     url = f"{path}?error={quote(error)}" if error else path
     return RedirectResponse(url, status_code=303)
+
+
+def run_exclusive(lock: threading.Lock, fn) -> bool:
+    """Runs fn unless another holder of lock is already running; returns whether it ran."""
+    if not lock.acquire(blocking=False):
+        log.info("refresh already running; skipping")
+        return False
+    try:
+        fn()
+    finally:
+        lock.release()
+    return True
 
 
 async def run_scheduled(fn) -> None:
@@ -81,11 +95,15 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def refresh_everything() -> None:
         if provider is None:
             return
-        conn = db.connect(settings.db_path)
-        try:
-            refresh.refresh_all(conn, provider)
-        finally:
-            conn.close()
+
+        def run() -> None:
+            conn = db.connect(settings.db_path)
+            try:
+                refresh.refresh_all(conn, provider)
+            finally:
+                conn.close()
+
+        run_exclusive(_refresh_lock, run)
 
     def check_and_refresh_if_stale() -> None:
         conn = db.connect(settings.db_path)

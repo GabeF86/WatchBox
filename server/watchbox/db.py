@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS valuations (
     failed_sources TEXT NOT NULL DEFAULT '',
     as_of TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_valuations_watch ON valuations(watch_id, as_of);
+CREATE INDEX IF NOT EXISTS idx_prices_watch ON prices(watch_id, fetched_at);
+CREATE INDEX IF NOT EXISTS idx_comparables_watch ON comparables(watch_id, source);
 """
 
 # Columns added after a table was first released: (table, column, declaration).
@@ -141,15 +144,23 @@ class Watch:
         return self.price_reference or self.reference
 
     @property
-    def identity(self) -> tuple:
+    def priced_as(self) -> tuple:
         """What the market data depends on; when it changes, prices must be fetched again."""
-        return (self.brand, self.model, self.reference, self.price_reference)
+        return priced_as(self.brand, self.model, self.reference, self.price_reference, self.dial, self.metal)
 
     @property
     def query(self) -> WatchQuery:
         return WatchQuery(brand=self.brand, model=self.model, reference=self.pricing_reference, year=self.year,
                           condition=self.condition, box_papers=self.box_papers, dial=self.dial,
                           bracelet=self.bracelet, metal=self.metal)
+
+
+def priced_as(brand: str, model: str, reference: str, price_reference: str | None, dial: str | None,
+              metal: str | None) -> tuple:
+    """Without a reference, searches use the model (and dial and metal), so those matter too."""
+    no_ref = not (price_reference or reference)
+    return (brand, reference, price_reference, model if no_ref else None, dial if no_ref else None,
+            metal if no_ref else None)
 
 
 class SlotTakenError(Exception):
@@ -165,8 +176,10 @@ def now_iso() -> str:
 def connect(path: str | PathLike) -> sqlite3.Connection:
     # FastAPI may run a dependency and its endpoint on different threads; each
     # connection is still used by one request at a time.
-    conn = sqlite3.connect(path, check_same_thread=False)
+    # The scheduler and web requests write from different threads: wait for locks, and let reads run alongside.
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
     for table, column, decl in MIGRATIONS:
@@ -215,7 +228,8 @@ def add_watch(conn, brand: str, model: str, reference: str, slot: int | None, ni
     return cur.lastrowid
 
 
-def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+def _clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
+    """Deletes the watch's prices, comparables and valuations; the caller commits."""
     for table in ("prices", "comparables", "valuations"):
         conn.execute(f"DELETE FROM {table} WHERE watch_id = ?", (watch_id,))
 
@@ -223,7 +237,7 @@ def clear_market_data(conn: sqlite3.Connection, watch_id: int) -> None:
 def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, slot: int | None, nickname: str | None,
                  price_reference: str | None = None, **details) -> None:
     d = DETAIL_DEFAULTS | details
-    old = conn.execute("SELECT brand, model, reference, price_reference FROM watches WHERE id = ?",
+    old = conn.execute("SELECT brand, model, reference, price_reference, dial, metal FROM watches WHERE id = ?",
                        (watch_id,)).fetchone()
     _write(
         conn,
@@ -234,12 +248,8 @@ def update_watch(conn, watch_id: int, brand: str, model: str, reference: str, sl
         slot,
         commit=False,
     )
-    if old:
-        priced_as_changed = (old["brand"], old["reference"], old["price_reference"]) != (brand, reference,
-                                                                                       price_reference)
-        model_matters = not (price_reference or reference)  # without a reference, searches use the model
-        if priced_as_changed or (model_matters and old["model"] != model):
-            clear_market_data(conn, watch_id)
+    if old and priced_as(*old) != priced_as(brand, model, reference, price_reference, d["dial"], d["metal"]):
+        _clear_market_data(conn, watch_id)
     conn.commit()
 
 

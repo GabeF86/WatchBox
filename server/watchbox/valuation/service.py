@@ -4,6 +4,7 @@ import sqlite3
 
 from .. import db
 from .engine import value
+from .sources.apify import SourceError
 
 log = logging.getLogger("watchbox.valuation")
 
@@ -22,13 +23,16 @@ class ValuationService:
         for source in self._sources:
             try:
                 fetched[source.name] = source.fetch(query)
-            except Exception as e:  # one source failing must not stop the other
+            except SourceError as e:  # one source failing must not stop the other
                 log.warning("%s failed for %s %s: %s", source.name, watch.brand, query.reference or watch.model, e)
+                failed.append(source.name)
+            except Exception:  # a bug, not an outage: keep the stack trace
+                log.exception("%s failed for %s %s", source.name, watch.brand, query.reference or watch.model)
                 failed.append(source.name)
         if not fetched:
             return False
         current = db.get_watch(conn, watch.id)
-        if current is None or current.identity != watch.identity:
+        if current is None or current.priced_as != watch.priced_as:
             log.info("watch %s changed or was deleted during fetch; discarding result", watch.id)
             return False
         try:
@@ -48,12 +52,16 @@ class ValuationService:
         return self._value_and_store(conn, watch, last["failed_sources"] if last else ())
 
     def _value_and_store(self, conn: sqlite3.Connection, watch: db.Watch, failed: tuple[str, ...]) -> bool:
-        valuation = value(watch.query, db.load_comparables(conn, watch.id),
-                          estimated_reference=bool(watch.price_reference), failed_sources=failed)
-        if valuation is None:
-            log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+        try:
+            valuation = value(watch.query, db.load_comparables(conn, watch.id),
+                              estimated_reference=bool(watch.price_reference), failed_sources=failed)
+            if valuation is None:
+                log.warning("no usable comparables for watch %s (%s %s)", watch.id, watch.brand, watch.model)
+                return False
+            db.add_valuation(conn, watch.id, valuation)
+        except Exception:  # one watch failing must not stop the others
+            log.exception("valuation failed for watch %s", watch.id)
             return False
-        db.add_valuation(conn, watch.id, valuation)
         log.info("%s %s -> $%.0f (%s confidence, tier %d, %d eBay + %d Chrono24)", watch.brand,
                  watch.query.reference or watch.model, valuation.estimate_usd, valuation.confidence,
                  valuation.tier, valuation.n_ebay, valuation.n_c24)

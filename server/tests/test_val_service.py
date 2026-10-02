@@ -82,3 +82,48 @@ def test_result_is_discarded_if_watch_changes_during_fetch(conn):
 
     assert not ValuationService([EditingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
     assert db.load_comparables(conn, wid) == []
+
+
+def test_model_rename_with_a_reference_during_fetch_keeps_the_result(conn):
+    wid = db.add_watch(conn, "Rolex", "Submariner", "116610LN", 1, None)
+
+    class RenamingSource(FakeSource):
+        def fetch(self, query):
+            db.update_watch(conn, wid, "Rolex", "Submariner Date", "116610LN", 1, None)
+            return comps("ebay")
+
+    assert ValuationService([RenamingSource("ebay", None)]).refresh_watch(conn, db.get_watch(conn, wid))
+    assert len(db.load_comparables(conn, wid)) == 6
+
+
+def test_one_watch_failing_to_value_does_not_stop_the_others(conn, monkeypatch):
+    from watchbox.valuation import service as service_module
+    first = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    second = db.add_watch(conn, "Rolex", "Submariner Date", "126610LN", 2, None)
+    real_value = service_module.value
+
+    def flaky_value(query, *args, **kwargs):
+        if query.reference == "116610LN":
+            raise RuntimeError("boom")
+        return real_value(query, *args, **kwargs)
+
+    monkeypatch.setattr(service_module, "value", flaky_value)
+    service = ValuationService([FakeSource("ebay", comps("ebay"))])
+    assert refresh.refresh_all(conn, service) == 1
+    assert db.latest_valuation(conn, first) is None and db.latest_valuation(conn, second)
+
+
+def test_unexpected_source_errors_are_logged_with_a_trace_and_marked_failed(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", KeyError("bug"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    assert db.latest_valuation(conn, wid)["failed_sources"] == ("chrono24",)
+    assert any(r.exc_info and "chrono24" in r.getMessage() for r in caplog.records)
+
+
+def test_expected_source_errors_are_logged_without_a_trace(conn, caplog):
+    wid = db.add_watch(conn, "Rolex", "Submariner Date", "116610LN", 1, None)
+    service = ValuationService([FakeSource("ebay", comps("ebay")), FakeSource("chrono24", SourceError("down"))])
+    assert service.refresh_watch(conn, db.get_watch(conn, wid))
+    records = [r for r in caplog.records if "chrono24" in r.getMessage()]
+    assert records and not any(r.exc_info for r in records)

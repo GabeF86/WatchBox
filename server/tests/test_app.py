@@ -181,3 +181,15 @@ def test_price_reference_field_is_used_and_shown(client, provider):
     assert "estimated from 2-39-47-06-02-04" in page
     assert client.get("/watches/1/edit").text.count('value="2-39-47-06-02-04"') == 1
     assert client.get("/api/display").json()["screens"][1]["line2"].startswith("~$6,779")
+
+
+def test_run_exclusive_skips_when_already_running():
+    import threading
+
+    from watchbox.app import run_exclusive
+    lock, calls = threading.Lock(), []
+    assert run_exclusive(lock, lambda: calls.append(1)) is True
+    assert not lock.locked()
+    with lock:
+        assert run_exclusive(lock, lambda: calls.append(2)) is False
+    assert calls == [1]
