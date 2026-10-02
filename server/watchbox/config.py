@@ -15,7 +15,8 @@ class Settings:
     refresh_hours: float
     db_path: str
     watchapi_token: str = ""
-    price_source: str = "auto"  # auto | thewatchapi | ebay
+    price_source: str = "auto"  # auto | comps | thewatchapi | ebay
+    apify_token: str = ""
 
 
 def load_settings() -> Settings:
@@ -31,4 +32,5 @@ def load_settings() -> Settings:
         db_path=db_path,
         watchapi_token=os.getenv("THEWATCHAPI_TOKEN", ""),
         price_source=os.getenv("PRICE_SOURCE", "auto").strip().lower(),
+        apify_token=os.getenv("APIFY_TOKEN", "").strip(),
     )
