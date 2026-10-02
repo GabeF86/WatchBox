@@ -5,6 +5,7 @@ from .models import Comparable, WatchQuery
 from .parse import norm, reference_matches
 
 MIN_TIER_COUNT = 5
+MIN_PER_SOURCE = 5  # a detail-matched tier must keep this many of each well-covered source
 YEAR_WINDOW = 3
 MIN_SPREAD = 0.06  # IQR floor, as a share of the median
 DETAIL_FIELDS = ("dial", "bracelet", "metal")
@@ -41,11 +42,23 @@ def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:
     return close if len(close) >= MIN_TIER_COUNT else comps
 
 
+def _keeps_sources(narrow: list[Comparable], wide: list[Comparable]) -> bool:
+    """False when narrowing (e.g. to one dial color) leaves too few of a source the wider tier covers well."""
+    for source in {c.source for c in wide}:
+        in_wide = sum(c.source == source for c in wide)
+        in_narrow = sum(c.source == source for c in narrow)
+        if in_wide >= MIN_PER_SOURCE and in_narrow < MIN_PER_SOURCE:
+            return False
+    return True
+
+
 def select_tier(comps: list[Comparable], q: WatchQuery) -> tuple[int, list[Comparable]]:
+    tiers = {t: prefer_year([c for c in comps if in_tier(c, q, t)], q) for t in (1, 2, 3)}
     best: tuple[int, list[Comparable]] = (3, [])
     for tier in (1, 2, 3):
-        chosen = prefer_year([c for c in comps if in_tier(c, q, tier)], q)
-        if len(chosen) >= MIN_TIER_COUNT:
+        chosen = tiers[tier]
+        # tier 1 only wins if it doesn't throw away most of a source; the engine then adjusts for the detail
+        if len(chosen) >= MIN_TIER_COUNT and (tier != 1 or _keeps_sources(chosen, tiers[2])):
             return tier, chosen
         if len(chosen) > len(best[1]):
             best = (tier, chosen)

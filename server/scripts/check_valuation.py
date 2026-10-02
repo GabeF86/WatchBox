@@ -55,6 +55,8 @@ def main() -> None:
     print(f"  weights: eBay {v.w_ebay:.0%}, Chrono24 {v.w_c24:.0%}")
     print(f"  factors: box {v.factors['box']}, condition {v.factors['condition']}, "
           f"learned {v.factors['learned']}")
+    if v.factors.get("detail"):
+        print(f"  detail adjustments (listings without your dial/bracelet): {v.factors['detail']}")
     if v.backtest_mdape is not None:
         print(f"  backtest: {v.backtest_n} sales, median error {v.backtest_mdape:.1%}, "
               f"{v.backtest_within10:.0%} within ±10%")

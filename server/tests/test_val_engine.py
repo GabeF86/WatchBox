@@ -103,3 +103,16 @@ def test_fewer_than_three_comparables_returns_none():
 def test_estimate_rounds_half_up():
     v = value(SUB, [comp(10005.0) for _ in range(6)])
     assert v.estimate_usd == 10010.0
+
+
+def test_thin_dial_match_widens_to_the_reference_and_adjusts_for_dial():
+    from dataclasses import replace
+    q_blue = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue")
+    title = "Rolex Datejust 41 126334"
+    comps = [comp(13000.0 + i, title=title, dial="blue") for i in range(6)]
+    comps += [comp(11000.0 + i, title=title, dial="black") for i in range(10)]
+    comps += [comp(12000.0 + i, source="chrono24", title=title, dial="black") for i in range(10)]
+    comps += [comp(14000.0, source="chrono24", title=title, dial="blue")]
+    v = value(q_blue, comps)
+    assert v.tier == 2 and v.n_c24 >= 10 and "dial" in v.factors["detail"]
+    assert v.estimate_usd > value(replace(q_blue, dial="black"), comps).estimate_usd

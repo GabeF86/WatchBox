@@ -292,3 +292,10 @@ server/scripts/check_valuation.py   # full breakdown for one watch
 - If a source keeps failing, its older comparables are kept and still used; the valuation lists that source as unavailable.
 - If you switch from the engine back to a v0 source, an older engine valuation can hide the newer v0 price, because the latest valuation wins over prices.
 - Per-watch refreshes on add or edit don't take the refresh-all lock, so they can overlap a scheduled refresh of the same watch (the result is still checked against the watch before it's stored).
+
+## Update 2026-10-02: thin detail matches widen with a detail adjustment
+
+- **Tier 1 must keep every well-covered source.** It wins only if it keeps at least 5 comparables from each source that has 5 or more at tier 2. Otherwise the engine uses tier 2 (same reference, all dials and bracelets).
+- **Detail adjustment at tier 2 and wider.** For each detail the owner set (dial, bracelet), the engine measures how listings with that detail price against listings without it (other or unknown). It measures on baseline prices within each source and pools the sources weighted by the smaller group. The result is shrunk toward 1.0 (`(n·m + 10)/(n + 10)`, needing at least 3 in each group) and kept within 0.85–1.20.
+- **How it's applied:** listings without the owner's detail are multiplied by that factor. The factors are stored in `factors["detail"]`.
+- **Real data (Datejust 41 126334, blue):** tier 1 used 6 eBay and 1 Chrono24 listing (estimate $13,200, backtest 16.4%). Tier 2 uses 16 eBay and 36 Chrono24 listings with a learned blue factor of 0.984 (estimate $13,650, backtest 9.5%). The Submariner 116610LN is unchanged ($11,720, tier 1).

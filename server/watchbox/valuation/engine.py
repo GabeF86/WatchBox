@@ -1,7 +1,7 @@
 """Turns comparables into one valuation for a watch. Pure: no network, no database."""
 from statistics import median
 
-from .adjust import adjust_price, learn_factors
+from .adjust import adjust_price, detail_adjust, learn_detail_factors, learn_factors
 from .backtest import backtest
 from .blend import asking_gap, confidence, percentile, weights
 from .match import iqr_mask, select_tier
@@ -25,11 +25,14 @@ def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool 
     if not chosen:
         return None
     factors = learn_factors(chosen)
+    # tier 1 already matches the owner's dial/bracelet; wider tiers mix them, so adjust for the difference
+    detail = learn_detail_factors(chosen, query, factors) if tier >= 2 else {}
+    adjust = lambda c: adjust_price(c, factors, query) * detail_adjust(c, query, detail)  # noqa: E731
     ebay_all = [c for c in chosen if c.source == "ebay" and c.kind == "sold"]
     c24_all = [c for c in chosen if c.source == "chrono24"]
 
-    ebay, ebay_adj = _kept(ebay_all, [adjust_price(c, factors, query) for c in ebay_all])
-    c24, c24_adj = _kept(c24_all, [adjust_price(c, factors, query) for c in c24_all])
+    ebay, ebay_adj = _kept(ebay_all, [adjust(c) for c in ebay_all])
+    c24, c24_adj = _kept(c24_all, [adjust(c) for c in c24_all])
     gap = asking_gap([factors.to_baseline(c) for c in ebay], [factors.to_baseline(c) for c in c24])
     w_ebay, w_c24 = weights(len(ebay_adj), len(c24_adj))
     if w_ebay + w_c24 == 0:
@@ -60,6 +63,7 @@ def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool 
         c24_median=median(c24_raw) if c24_raw else None,
         gap=round(gap, 4), w_ebay=round(w_ebay, 3), w_c24=round(w_c24, 3),
         backtest_n=bt_n, backtest_mdape=bt_mdape, backtest_within10=bt_within,
-        factors={"box": factors.box, "condition": factors.condition, "learned": factors.learned},
+        factors={"box": factors.box, "condition": factors.condition, "learned": factors.learned,
+                 "detail": detail},
         failed_sources=tuple(failed_sources),
     )
