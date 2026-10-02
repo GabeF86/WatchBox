@@ -47,6 +47,10 @@ bool power::noteActivity() {
 }
 
 power::Action power::update(bool usb) {
+#ifdef DEMO_ALWAYS_ON  // demo build: never dim or sleep (keeps a power bank from switching off)
+  (void)usb;
+  return Action::None;
+#endif
   unsigned long idle = millis() - lastActivity;
   unsigned long dimAfter = usb ? DIM_AFTER_USB : DIM_AFTER_BATTERY;
   if (!dimmed && idle >= dimAfter) {
