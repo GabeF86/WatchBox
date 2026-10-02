@@ -35,7 +35,7 @@ def in_tier(c: Comparable, q: WatchQuery, tier: int) -> bool:
         return _base_match(c, q) and _details_match(c, q)
     if tier == 2:  # same reference (or brand + model) and metal; any dial or bracelet
         return _base_match(c, q) and metal_compatible(c, q)
-    return _base_match(c, q) or _brand_model_match(c, q)
+    return (_base_match(c, q) or _brand_model_match(c, q)) and metal_compatible(c, q)
 
 
 def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:

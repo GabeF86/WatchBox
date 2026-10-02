@@ -71,4 +71,4 @@ def test_tier2_ignores_dial_and_bracelet_but_not_metal():
     assert in_tier(comp(title, dial="black", metal="steel"), q, 2)
     assert in_tier(comp(title, dial="black"), q, 2)  # unknown metal is neutral
     assert not in_tier(comp(title, metal="two_tone"), q, 2)
-    assert in_tier(comp(title, metal="two_tone"), q, 3)
+    assert not in_tier(comp(title, metal="two_tone"), q, 3)  # metal is never relaxed

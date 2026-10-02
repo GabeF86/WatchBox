@@ -54,7 +54,7 @@ BLUE = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="
 
 def test_detail_factor_measures_dial_premium_and_shrinks():
     comps = [dcomp(12000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5
-    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 10) / 15)
+    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 3) / 8)
 
 
 def test_detail_factor_needs_enough_data_and_is_clamped():
@@ -72,4 +72,4 @@ def test_detail_adjust_applies_only_to_listings_with_a_different_known_detail():
 
 def test_detail_factor_ignores_listings_with_unknown_detail():
     comps = [dcomp(12000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5 + [dcomp(50000.0)] * 5
-    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 10) / 15)
+    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 3) / 8)

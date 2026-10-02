@@ -1,10 +1,9 @@
 """Leave-one-out accuracy check: predict each recent sale from the others and measure the error."""
 from statistics import median
+from typing import Callable
 
 from .adjust import Factors
 from .match import trim_iqr
-from typing import Callable
-
 from .models import Comparable
 
 MIN_BACKTEST = 6

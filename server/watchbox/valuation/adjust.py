@@ -12,6 +12,7 @@ CLAMP = 0.10  # a learned factor stays within ±0.10 of its prior
 MIN_GROUP = 3
 DETAIL_FIELDS = ("dial", "bracelet")  # details that vary within one reference
 DETAIL_RANGE = (0.85, 1.20)
+DETAIL_SHRINK = 3  # small: widening happens exactly when the owner's detail group is small
 
 
 @dataclass
@@ -101,7 +102,7 @@ def learn_detail_factors(comps: list[Comparable], q: WatchQuery, factors: Factor
         if ratios:
             n = sum(k for _, k in ratios)
             measured = sum(r * k for r, k in ratios) / n
-            shrunk = (n * measured + SHRINK * 1.0) / (n + SHRINK)
+            shrunk = (n * measured + DETAIL_SHRINK * 1.0) / (n + DETAIL_SHRINK)
             learned[attr] = min(max(shrunk, DETAIL_RANGE[0]), DETAIL_RANGE[1])
     return learned
 

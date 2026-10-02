@@ -78,7 +78,7 @@ def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool 
         estimate_usd=float(estimate),
         confidence=confidence(tier, len(combined), spread, bt_mdape, estimated_reference, bool(failed_sources),
                               sold_data=bool(ebay), loose_match=tier == 3 and bool(query.reference),
-                              widened=bool(widened)),
+                              widened=bool(widened) or (tier >= 2 and bool(detail))),
         tier=tier, n_ebay=len(ebay), n_c24=len(c24),
         ebay_median=median(ebay_raw) if ebay_raw else None,
         ebay_p10=percentile(ebay_raw, 10) if ebay_raw else None,
