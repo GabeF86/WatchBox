@@ -3034,6 +3034,12 @@ PRICE_SOURCE=auto
 Under "## Get a price source key", insert this as the first subsection:
 ```markdown
 **Apify valuation engine (default, most accurate):** create a free account at https://apify.com, copy your Personal API token (Console → Settings → API & Integrations) into `server/.env` as `APIFY_TOKEN`. Each watch is valued from eBay sold listings (last 90 days) and Chrono24 asking prices, adjusted for its condition, box & papers and other details, with a backtest that shows how accurate the estimate is. Explain any watch's number with `.venv/bin/python scripts/check_valuation.py <watch id>` (add `--fetch` to pull fresh data first).
+After switching to the Apify engine, click **Refresh prices now** once to get the first valuations right away; otherwise they wait for the next scheduled refresh.
+```
+Change the `cp .env.example .env` comment under "## Run the app" to `# add your APIFY_TOKEN (or THEWATCHAPI_TOKEN)`, and add this paragraph right after the `Tests:` line:
+```markdown
+
+Backups: the database uses SQLite WAL mode, so don't just copy `watchbox.db` while the app is running. Either run `sqlite3 server/watchbox.db ".backup watchbox-backup.db"` (safe while running), or stop the app and copy `watchbox.db` together with its `watchbox.db-wal` and `watchbox.db-shm` files.
 ```
 
 - [ ] **Step 5: Align the spec with the implementation**
@@ -3042,7 +3048,7 @@ In `docs/superpowers/specs/2026-10-02-valuation-engine-design.md`:
 - In section 8, replace `c24_count, c24_median` with `c24_median`, and add `failed_sources` before `as_of` in the column list.
 - In section 10, replace `refresh.py       # fetch, store comparables, run engine, store valuation` with `service.py       # ValuationService: fetch, store comparables, value, recompute`.
 - In section 4, replace the year-preference sentence with: "Year: when the owner set a year, listings more than 3 years away are dropped, and listings with an unknown year are kept, provided at least 5 remain. Otherwise all are kept."
-- In section 2 "Storage", replace "Each refresh **replaces** that watch's comparables. Rows older than 90 days are deleted." with "Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows."
+- In section 2 "Storage", replace the two bullets "Each refresh **replaces** that watch's comparables." and "Rows older than 90 days are deleted." with the single bullet "Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows."
 
 - [ ] **Step 6: Run the full suite**
 
@@ -3052,7 +3058,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server/scripts/check_valuation.py server/.env.example README.md docs/superpowers/specs/2026-10-02-valuation-engine-design.md
+git add server/scripts/check_valuation.py server/.env.example README.md docs/superpowers/specs/2026-10-02-valuation-engine-design.md docs/superpowers/plans/2026-10-02-valuation-engine.md
 git commit -m "docs: valuation check script, config and README"
 ```
 

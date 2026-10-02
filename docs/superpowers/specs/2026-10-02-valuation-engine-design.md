@@ -101,8 +101,7 @@ New table `comparables`:
 
 `id, watch_id, source, kind, price_usd, date, title, url, reference, year, condition, box_papers, dial, bracelet, metal, best_offer, fetched_at`
 
-- Each refresh **replaces** that watch's comparables.
-- Rows older than 90 days are deleted.
+- Each refresh replaces that watch's comparables **per source**, so a source that fails keeps its previous rows.
 - Rows are deleted along with their watch.
 
 ## 3. Reading listing details (`parse.py`)
@@ -141,7 +140,7 @@ Comparables are scored against the watch, using only the details the owner set:
 | 3 | Brand and model appear in the title. Only used when there's no reference, or when tiers 1–2 fail. |
 
 - The engine picks the **tightest tier with at least 5 comparables**, counting both sources together. If none reaches 5, it uses the tier with the most comparables and caps confidence at low.
-- Year: when the owner set a year, comparables within ±3 years are preferred. They're kept first, and listings without a year come next.
+- Year: when the owner set a year, listings more than 3 years away are dropped, and listings with an unknown year are kept, provided at least 5 remain. Otherwise all are kept.
 - **Outlier trimming, per source:** comparables outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]` are dropped, computed after adjustment (section 5). With fewer than 4 comparables, nothing is trimmed.
 - eBay comparables with `best_offer=true` are **excluded** before tier selection and factor learning, because the real sale price is unknown.
 - **One consistent sample.** Trimming (`iqr_mask`) runs on adjusted prices and decides which comparables are kept. `n_ebay` / `n_c24` and the displayed raw stats (median, P10, P90, min, max) all come from those same kept comparables, with no second trim.
@@ -206,7 +205,7 @@ A leave-one-out check on the watch's own eBay sold comparables at the chosen tie
 
 New table `valuations`, one row per valuation:
 
-`id, watch_id, estimate_usd, confidence, tier, n_ebay, n_c24, ebay_median, ebay_p10, ebay_p90, ebay_min, ebay_max, c24_count, c24_median, gap, w_ebay, w_c24, backtest_n, backtest_mdape, backtest_within10, factors_json, as_of`
+`id, watch_id, estimate_usd, confidence, tier, n_ebay, n_c24, ebay_median, ebay_p10, ebay_p90, ebay_min, ebay_max, c24_median, gap, w_ebay, w_c24, backtest_n, backtest_mdape, backtest_within10, factors_json, failed_sources, as_of`
 
 - **The current price** becomes the latest valuation's `estimate_usd`. Existing code that reads `price_usd` gets it through the `_SELECT` join, which changes to join the latest valuation. The v0 `prices` table stays for providers that are still used (TheWatchAPI, eBay Browse).
 - **Web page, per watch:**
@@ -245,7 +244,7 @@ server/watchbox/valuation/
     apify.py       # shared Apify client (run-sync, auth, errors, timeouts)
     ebay_sold.py   # ApifyEbaySoldSource
     chrono24.py    # ApifyChrono24Source
-  refresh.py       # fetch, store comparables, run engine, store valuation
+  service.py       # ValuationService: fetch, store comparables, value, recompute
 server/scripts/check_valuation.py   # full breakdown for one watch
 ```
 

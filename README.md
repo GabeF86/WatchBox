@@ -11,6 +11,9 @@ A local web app stores your watches and fetches market prices from TheWatchAPI (
 - Double-sided foam tape for the ESP32
 
 ## Get a price source key
+**Apify valuation engine (default, most accurate):** create a free account at https://apify.com, copy your Personal API token (Console → Settings → API & Integrations) into `server/.env` as `APIFY_TOKEN`. Each watch is valued from eBay sold listings (last 90 days) and Chrono24 asking prices, adjusted for its condition, box & papers and other details, with a backtest that shows how accurate the estimate is. Explain any watch's number with `.venv/bin/python scripts/check_valuation.py <watch id>` (add `--fetch` to pull fresh data first).
+After switching to the Apify engine, click **Refresh prices now** once to get the first valuations right away; otherwise they wait for the next scheduled refresh.
+
 **TheWatchAPI (default):** register free at https://www.thewatchapi.com/register and put your API token in `server/.env` as `THEWATCHAPI_TOKEN`.
 The free plan allows 25 requests a day, so keep `REFRESH_HOURS=24` (8 watches = 8 requests a day, plus one per watch you add or edit).
 Their docs say price history may need the Standard plan; if so, the app logs a clear "may need a higher TheWatchAPI plan" error. Check with `scripts/check_price.py` right after you get your token.
@@ -24,7 +27,7 @@ Their docs say price history may need the Standard plan; if so, the app logs a c
 ```bash
 cd server
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # add your THEWATCHAPI_TOKEN
+cp .env.example .env        # add your APIFY_TOKEN (or THEWATCHAPI_TOKEN)
 .venv/bin/python -m watchbox
 ```
 Open http://localhost:8000 and add watches. The log prints the `ESP32 SERVER_URL` to put in the firmware config.
@@ -32,6 +35,8 @@ On first run macOS asks whether Python may accept incoming network connections: 
 
 Check one price by hand: `.venv/bin/python scripts/check_price.py Rolex 126610LN`
 Tests: `.venv/bin/pytest -q`
+
+Backups: the database uses SQLite WAL mode, so don't just copy `watchbox.db` while the app is running. Either run `sqlite3 server/watchbox.db ".backup watchbox-backup.db"` (safe while running), or stop the app and copy `watchbox.db` together with its `watchbox.db-wal` and `watchbox.db-shm` files.
 
 ## Flash the ESP32
 Install arduino-cli (no Homebrew needed) and the ESP32 core once:
