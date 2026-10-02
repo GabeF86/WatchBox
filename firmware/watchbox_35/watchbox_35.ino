@@ -2,6 +2,7 @@
 // Data comes from the Mac app's GET /api/box; the last good payload is cached so wake-up is instant.
 #include <WiFi.h>
 #include <driver/gpio.h>
+#include <esp_sleep.h>
 
 #include "board.h"
 #include "data.h"
@@ -100,12 +101,12 @@ void handleTouch(const TouchEvent& ev) {
       }
       break;
     case Screen::Detail:
-      if (ev.gesture == Gesture::SwipeLeft) {
-        detailIndex = nextWatch(detailIndex, 1);
-        show(Screen::Detail);
-      } else if (ev.gesture == Gesture::SwipeRight) {
-        detailIndex = nextWatch(detailIndex, -1);
-        show(Screen::Detail);
+      if (ev.gesture == Gesture::SwipeLeft || ev.gesture == Gesture::SwipeRight) {
+        int next = nextWatch(detailIndex, ev.gesture == Gesture::SwipeLeft ? 1 : -1);
+        if (next != detailIndex) {  // with a single watch there is nothing to move to
+          detailIndex = next;
+          show(Screen::Detail);
+        }
       } else if (screens::backArea().contains(ev.x, ev.y)) {
         show(Screen::Home);
       }
@@ -132,7 +133,9 @@ void tryFetch() {
   bool reconnected = up && !wasConnected;
   wasConnected = up;
   if (!up) return;
-  if (fetchedThisBoot && !reconnected && millis() - lastFetch < FETCH_INTERVAL) return;
+  // Periodic fetches pause while dimmed or in settings; the first fetch after boot and reconnects always run.
+  bool idleScreen = power::isDimmed() || screen == Screen::Settings || screen == Screen::ConfirmReset;
+  if (fetchedThisBoot && !reconnected && (millis() - lastFetch < FETCH_INTERVAL || idleScreen)) return;
   lastFetch = millis();
   fetchedThisBoot = true;
   String json;
@@ -152,21 +155,30 @@ void tryFetch() {
   }
 }
 
+void drawSetup(const String& ap) {
+  screens::setup(ap);
+  power::backlightOn();
+}
+
 void setup() {
   Serial.begin(115200);
-  gpio_hold_dis(GPIO_NUM_27);  // released from the deep-sleep backlight hold
-  tft.init();
+  gpio_hold_dis(GPIO_NUM_27);  // release the deep-sleep holds: backlight, LCD CS, touch CS
+  gpio_hold_dis(GPIO_NUM_15);
+  gpio_hold_dis(GPIO_NUM_33);
+  tft.init();             // clears the panel, then turns the backlight on at the library default
+  tft.setBrightness(0);   // dark until the first frame is drawn
   tft.setRotation(1);
   tft.setTouchCalibrate(TOUCH_CAL);
-  tft.setBrightness(200);
-  if (power::wokeFromTouch()) input::ignoreIfTouching();
+  Serial.printf("wake cause=%d, irq36=%d\n", (int)esp_sleep_get_wakeup_cause(), digitalRead(36));
+  if (power::wokeFromUser()) input::ignoreIfTouching();
 
   serverUrl = net::server();
-  if (!net::configured()) net::runSetup(screens::setup);  // does not return
+  if (!net::configured()) net::runSetup(drawSetup);  // does not return
 
   String cached;
   if (loadCache(cached) && parseBox(cached, box)) lastContent = boxContent(cached);
   draw();  // instant: cached values (or "waiting for the app")
+  power::backlightOn();
   net::begin();
   power::noteActivity();
 }

@@ -107,7 +107,9 @@ void drawTile(const WatchInfo& w, const Area& r) {
   wrapText(w.name, r.x + 8, r.y + 30, r.w - 16, 2, &fonts::FreeSans9pt7b, TEXT);
   if (w.hasEstimate) {
     String price = String(w.estimatedRef ? "~" : "") + formatPrice(w.estimate);
-    text(price, r.x + 8, r.y + r.h - 28, &fonts::FreeSansBold12pt7b, GOLD);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+    if (tft.textWidth(price.c_str()) > r.w - 16) text(price, r.x + 8, r.y + r.h - 24, &fonts::FreeSansBold9pt7b, GOLD);
+    else text(price, r.x + 8, r.y + r.h - 28, &fonts::FreeSansBold12pt7b, GOLD);
   } else {
     text("no price yet", r.x + 8, r.y + r.h - 24, &fonts::FreeSans9pt7b, MUTED);
   }
@@ -157,7 +159,7 @@ void screens::detail(const BoxData& d, int index, const BoxStatus& s) {
   statusBar("< Back", s, right.c_str());
   banner(s);
   int y = hasBanner(s) ? 50 : 32;
-  text(w.brand + "  |  " + w.reference + "  |  " + w.details, MARGIN + 4, y, &fonts::FreeSans9pt7b, MUTED);
+  text(w.brand + "  -  " + w.reference + "  -  " + w.details, MARGIN + 4, y, &fonts::FreeSans9pt7b, MUTED);
   text(w.name, MARGIN + 4, y + 20, &fonts::FreeSans18pt7b, TEXT);
   String est = w.hasEstimate ? String(w.estimatedRef ? "~" : "") + formatPrice(w.estimate) : String("no price yet");
   text(est, MARGIN + 4, y + 56, &fonts::FreeSansBold24pt7b, GOLD);
@@ -180,9 +182,9 @@ void screens::detail(const BoxData& d, int index, const BoxStatus& s) {
     snprintf(acc, sizeof acc, "+/-%.1f%%", w.mdape * 100);
     column(cx + 2 * cw, cy, "Accuracy", acc, "backtest, " + String(w.accN) + " sales", "");
   } else {
-    column(cx + 2 * cw, cy, "Accuracy", "-", "not enough sales", "");
+    column(cx + 2 * cw, cy, "Accuracy", "-", "not enough data", "");
   }
-  String footer = w.asOf.length() ? "Updated " + w.asOf + "  |  eBay + Chrono24" : String("eBay + Chrono24");
+  String footer = w.asOf.length() ? "Updated " + w.asOf + "  -  eBay + Chrono24" : String("eBay + Chrono24");
   text(footer, MARGIN + 4, H - 22, &fonts::FreeSans9pt7b, MUTED);
 }
 
@@ -191,7 +193,7 @@ void screens::settings(const BoxStatus& s, const String& server, int unslotted, 
   tft.fillScreen(BG);
   statusBar("< Back", s, "Settings");
   tft.fillRect(MARGIN, 40, 164, 164, WHITE);
-  tft.qrcode(server.c_str(), MARGIN + 7, 47, 150);
+  tft.qrcode(server.c_str(), MARGIN, 40, 164, 1, true);  // margin: at least 4 white modules around the code
   text("Open the app", MARGIN + 82, 212, &fonts::FreeSans9pt7b, TEXT, top_center);
   text("on your phone", MARGIN + 82, 230, &fonts::FreeSans9pt7b, TEXT, top_center);
 
@@ -223,7 +225,7 @@ void screens::setup(const String& apName) {
   text("Set up your WatchBox", MARGIN + 4, 14, &fonts::FreeSansBold18pt7b, TEXT);
   String wifiQr = "WIFI:T:nopass;S:" + apName + ";;";
   tft.fillRect(MARGIN, 60, 174, 174, WHITE);
-  tft.qrcode(wifiQr.c_str(), MARGIN + 7, 67, 160);
+  tft.qrcode(wifiQr.c_str(), MARGIN, 60, 174, 1, true);  // margin: at least 4 white modules around the code
   int x = 200, y = 70;
   const String lines[] = {"1. Scan to join " + apName, "2. The setup page opens.", "   If not, go to 192.168.4.1",
                           "3. Choose your Wi-Fi, enter the", "   app address, and save."};
