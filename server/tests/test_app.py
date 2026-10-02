@@ -193,3 +193,9 @@ def test_run_exclusive_skips_when_already_running():
     with lock:
         assert run_exclusive(lock, lambda: calls.append(2)) is False
     assert calls == [1]
+
+
+def test_add_form_defaults_to_first_free_slot(client):
+    add(client, slot="1")
+    add(client, brand="Omega", model="Speedmaster", reference="310.30.42.50.01.001", slot="3")
+    assert '<option value="2" selected>' in client.get("/").text

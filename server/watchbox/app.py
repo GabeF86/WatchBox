@@ -177,7 +177,9 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     def index(request: Request, conn: Conn, error: str | None = None):
         watches = db.list_watches(conn)
         priced = [w for w in watches if w.price_usd is not None]
-        return render(request, "index.html", watches=watches, valuations=db.latest_valuations(conn),
+        taken = {w.slot for w in watches}
+        default_slot = next((s for s in SLOTS if s not in taken), None)  # new watches start in the first free slot
+        return render(request, "index.html", watches=watches, default_slot=default_slot, valuations=db.latest_valuations(conn),
                       total=sum(w.price_usd for w in priced), priced_count=len(priced), error=error, fw=None,
                       action="/watches", submit_label="Add watch")
 

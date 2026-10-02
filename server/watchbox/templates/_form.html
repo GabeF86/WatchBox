@@ -32,7 +32,7 @@
   <label>Slot
     <select name="slot">
       <option value="">No slot</option>
-      {% for s in slots %}<option value="{{ s }}" {% if fw and fw.slot == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      {% for s in slots %}<option value="{{ s }}" {% if (fw and fw.slot == s) or (not fw and default_slot == s) %}selected{% endif %}>{{ s }}</option>{% endfor %}
     </select>
   </label>
   <label>Nickname (optional) <input name="nickname" value="{{ (fw.nickname or '') if fw else '' }}" placeholder="Dad's Sub"></label>
