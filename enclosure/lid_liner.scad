@@ -23,7 +23,7 @@ window_bevel  = 1.5;    // 45° chamfer around the window on the front face
 
 // ---------- ESP32-32E 3.5" board (LCDwiki/Elecrow E32R35T: 101.5 x 55.5, touch area 77.24 x 49.5) ----------
 board         = [101.5, 55.5];
-hole_sp       = [93.3, 49.0];  // long side measured 93.29 mm c-c on the board; short side still estimated
+hole_sp       = [93.3, 47.8];  // measured c-c on the board: 93.29 x 47.78 mm
 glass_stack   = 4.2;           // PCB front face to touch-glass front face (module 5.8 total - 1.6 PCB)
 glass_offset  = [0.7, 0];      // touch-glass centre relative to board centre (ESTIMATED; check with coupon)
 dead_strip    = 2.85;          // measured: black non-display border on the right edge of the glass (as viewed)
