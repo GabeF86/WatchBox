@@ -64,19 +64,11 @@ def test_iqr_mask_matches_trim_iqr():
     assert iqr_mask([10, 100, 1000]) == [True, True, True]
 
 
-def test_tier1_must_keep_each_well_covered_source():
-    q_blue = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue")
-    ebay_blue = [comp("Rolex Datejust 41 126334", dial="blue") for _ in range(6)]
-    c24 = [comp("Rolex Datejust 41 126334", dial="black", source="chrono24") for _ in range(9)]
-    c24 += [comp("Rolex Datejust 41 126334", dial="blue", source="chrono24")]
-    tier, chosen = select_tier(ebay_blue + c24, q_blue)
-    assert tier == 2 and len(chosen) == 16
 
-
-def test_tier1_kept_when_every_source_has_enough():
-    q_blue = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue")
-    comps = [comp("Rolex Datejust 41 126334", dial="blue") for _ in range(6)]
-    comps += [comp("Rolex Datejust 41 126334", dial="blue", source="chrono24") for _ in range(5)]
-    comps += [comp("Rolex Datejust 41 126334", dial="black", source="chrono24") for _ in range(5)]
-    tier, chosen = select_tier(comps, q_blue)
-    assert tier == 1 and len(chosen) == 11
+def test_tier2_ignores_dial_and_bracelet_but_not_metal():
+    q = WatchQuery(brand="Rolex", model="Datejust 41", reference="126334", dial="blue", metal="steel")
+    title = "Rolex Datejust 41 126334"
+    assert in_tier(comp(title, dial="black", metal="steel"), q, 2)
+    assert in_tier(comp(title, dial="black"), q, 2)  # unknown metal is neutral
+    assert not in_tier(comp(title, metal="two_tone"), q, 2)
+    assert in_tier(comp(title, metal="two_tone"), q, 3)

@@ -40,7 +40,7 @@ def main() -> None:
                   else "tier 1" if in_tier(c, q, 1) else "tier 2" if in_tier(c, q, 2)
                   else "tier 3" if in_tier(c, q, 3) else "no match")
         print(f"  {c.source:<8} ${c.price_usd:>9,.0f}  {reason:<10} {c.box_papers or '-':<11} "
-              f"{c.condition or '-':<9} {str(c.year or '-'):<5} {c.title[:60]}")
+              f"{c.condition or '-':<9} {str(c.year or '-'):<5} {c.dial or '-':<6} {c.title[:55]}")
     last = db.latest_valuation(conn, watch.id)
     v = value(q, comps, estimated_reference=bool(watch.price_reference),
               failed_sources=last["failed_sources"] if last else ())
@@ -55,8 +55,9 @@ def main() -> None:
     print(f"  weights: eBay {v.w_ebay:.0%}, Chrono24 {v.w_c24:.0%}")
     print(f"  factors: box {v.factors['box']}, condition {v.factors['condition']}, "
           f"learned {v.factors['learned']}")
-    if v.factors.get("detail"):
-        print(f"  detail adjustments (listings without your dial/bracelet): {v.factors['detail']}")
+    if v.factors.get("widened"):
+        print(f"  widened to all dials/bracelets of the reference: {', '.join(v.factors['widened'])} "
+              f"(too few exact matches); detail adjustments {v.factors['detail']}")
     if v.backtest_mdape is not None:
         print(f"  backtest: {v.backtest_n} sales, median error {v.backtest_mdape:.1%}, "
               f"{v.backtest_within10:.0%} within ±10%")

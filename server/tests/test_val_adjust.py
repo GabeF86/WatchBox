@@ -58,13 +58,18 @@ def test_detail_factor_measures_dial_premium_and_shrinks():
 
 
 def test_detail_factor_needs_enough_data_and_is_clamped():
-    assert learn_detail_factors([dcomp(12000.0, "blue")] * 2 + [dcomp(10000.0)] * 5, BLUE, PRIORS) == {}
+    assert learn_detail_factors([dcomp(12000.0, "blue")] * 2 + [dcomp(10000.0, "black")] * 5, BLUE, PRIORS) == {}
     big = [dcomp(30000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5
     assert learn_detail_factors(big, BLUE, PRIORS)["dial"] == pytest.approx(1.20)
 
 
-def test_detail_adjust_applies_only_to_listings_without_the_owners_detail():
+def test_detail_adjust_applies_only_to_listings_with_a_different_known_detail():
     detail = {"dial": 1.1}
     assert detail_adjust(dcomp(10000.0, "blue"), BLUE, detail) == 1.0
     assert detail_adjust(dcomp(10000.0, "black"), BLUE, detail) == pytest.approx(1.1)
-    assert detail_adjust(dcomp(10000.0, None), BLUE, detail) == pytest.approx(1.1)
+    assert detail_adjust(dcomp(10000.0, None), BLUE, detail) == 1.0  # unknown is neutral, as in tier 1
+
+
+def test_detail_factor_ignores_listings_with_unknown_detail():
+    comps = [dcomp(12000.0, "blue")] * 5 + [dcomp(10000.0, "black")] * 5 + [dcomp(50000.0)] * 5
+    assert learn_detail_factors(comps, BLUE, PRIORS)["dial"] == pytest.approx((5 * 1.2 + 10) / 15)
