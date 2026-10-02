@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import db, refresh
+from .box import build_box_payload
 from .config import Settings
 from .display import build_screens, format_price, time_ago
 from .pricing import PriceProvider
@@ -249,5 +250,9 @@ def create_app(settings: Settings, provider: PriceProvider | None, run_scheduler
     @app.get("/api/display")
     def display(conn: Conn):
         return {"generated_at": db.now_iso(), "screens": build_screens(db.list_watches(conn))}
+
+    @app.get("/api/box")
+    def box(conn: Conn):
+        return build_box_payload(db.list_watches(conn), db.latest_valuations(conn), db.now_iso())
 
     return app
