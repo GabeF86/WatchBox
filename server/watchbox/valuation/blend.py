@@ -35,15 +35,18 @@ def weights(n_ebay: int, n_c24: int) -> tuple[float, float]:
 
 
 def confidence(tier: int, n_total: int, spread: float, mdape: float | None,
-               estimated_reference: bool, degraded: bool) -> str:
+               estimated_reference: bool, degraded: bool,
+               sold_data: bool = True, loose_match: bool = False) -> str:
     if tier <= 2 and n_total >= 10 and spread <= 0.25 and (mdape is None or mdape <= 0.07):
         level = 2
     elif n_total >= 5 and spread <= 0.45:
         level = 1
     else:
         level = 0
-    if estimated_reference:
+    if estimated_reference or not sold_data:  # no eBay sold prices: asking prices only
         level = min(level, 1)
+    if loose_match:  # tier 3 although the owner set a reference
+        level = 0
     if degraded:  # a source failed this time
         level = max(level - 1, 0)
     return LEVELS[level]

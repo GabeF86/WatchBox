@@ -46,6 +46,12 @@ def test_confidence(args, expected):
     assert confidence(*args) == expected
 
 
+def test_confidence_caps():
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=False) == "medium"
+    assert confidence(1, 12, 0.20, 0.05, False, False, loose_match=True) == "low"
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=True, loose_match=False) == "high"
+
+
 def test_backtest_needs_six_sales():
     assert backtest([sold(10000.0)] * 5, PRIORS) == (0, None, None)
 

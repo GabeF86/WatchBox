@@ -56,3 +56,9 @@ def test_trim_iqr_has_minimum_width_so_ties_do_not_collapse():
 
 def test_tier_3_is_superset_of_tier_2():
     assert in_tier(comp("Rolex Submariner 116610LN"), Q, 3)  # no "Date", but the reference matches
+
+
+def test_iqr_mask_matches_trim_iqr():
+    from watchbox.valuation.match import iqr_mask
+    assert iqr_mask([10, 11, 12, 13, 100]) == [True, True, True, True, False]
+    assert iqr_mask([10, 100, 1000]) == [True, True, True]

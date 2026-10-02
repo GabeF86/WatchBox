@@ -52,10 +52,15 @@ def select_tier(comps: list[Comparable], q: WatchQuery) -> tuple[int, list[Compa
     return best
 
 
-def trim_iqr(values: list[float]) -> list[float]:
+def iqr_mask(values: list[float]) -> list[bool]:
+    """True for each value inside [Q1 - 1.5 IQR, Q3 + 1.5 IQR]; with fewer than 4 values all are kept."""
     if len(values) < 4:
-        return list(values)
+        return [True] * len(values)
     q1, _, q3 = quantiles(values, n=4, method="inclusive")
     spread = max(q3 - q1, MIN_SPREAD * median(values))  # tied prices must not collapse the sample
     low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
-    return [v for v in values if low <= v <= high]
+    return [low <= v <= high for v in values]
+
+
+def trim_iqr(values: list[float]) -> list[float]:
+    return [v for v, keep in zip(values, iqr_mask(values)) if keep]

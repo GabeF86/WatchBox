@@ -1083,6 +1083,12 @@ def test_trim_iqr_has_minimum_width_so_ties_do_not_collapse():
     assert len(trim_iqr([11500] * 7 + [11000, 12000, 12400])) == 10
 
 
+def test_iqr_mask_matches_trim_iqr():
+    from watchbox.valuation.match import iqr_mask
+    assert iqr_mask([10, 11, 12, 13, 100]) == [True, True, True, True, False]
+    assert iqr_mask([10, 100, 1000]) == [True, True, True]
+
+
 def test_tier_3_is_superset_of_tier_2():
     assert in_tier(comp("Rolex Submariner 116610LN"), Q, 3)  # no "Date", but the reference matches
 ```
@@ -1149,13 +1155,18 @@ def select_tier(comps: list[Comparable], q: WatchQuery) -> tuple[int, list[Compa
     return best
 
 
-def trim_iqr(values: list[float]) -> list[float]:
+def iqr_mask(values: list[float]) -> list[bool]:
+    """True for each value inside [Q1 - 1.5 IQR, Q3 + 1.5 IQR]; with fewer than 4 values all are kept."""
     if len(values) < 4:
-        return list(values)
+        return [True] * len(values)
     q1, _, q3 = quantiles(values, n=4, method="inclusive")
     spread = max(q3 - q1, MIN_SPREAD * median(values))  # tied prices must not collapse the sample
     low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
-    return [v for v in values if low <= v <= high]
+    return [low <= v <= high for v in values]
+
+
+def trim_iqr(values: list[float]) -> list[float]:
+    return [v for v, keep in zip(values, iqr_mask(values)) if keep]
 ```
 
 - [ ] **Step 4: Run to verify pass**
@@ -1388,6 +1399,12 @@ def test_confidence(args, expected):
     assert confidence(*args) == expected
 
 
+def test_confidence_caps():
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=False) == "medium"
+    assert confidence(1, 12, 0.20, 0.05, False, False, loose_match=True) == "low"
+    assert confidence(1, 12, 0.20, 0.05, False, False, sold_data=True, loose_match=False) == "high"
+
+
 def test_backtest_needs_six_sales():
     assert backtest([sold(10000.0)] * 5, PRIORS) == (0, None, None)
 
@@ -1446,15 +1463,18 @@ def weights(n_ebay: int, n_c24: int) -> tuple[float, float]:
 
 
 def confidence(tier: int, n_total: int, spread: float, mdape: float | None,
-               estimated_reference: bool, degraded: bool) -> str:
+               estimated_reference: bool, degraded: bool,
+               sold_data: bool = True, loose_match: bool = False) -> str:
     if tier <= 2 and n_total >= 10 and spread <= 0.25 and (mdape is None or mdape <= 0.07):
         level = 2
     elif n_total >= 5 and spread <= 0.45:
         level = 1
     else:
         level = 0
-    if estimated_reference:
+    if estimated_reference or not sold_data:  # no eBay sold prices: asking prices only
         level = min(level, 1)
+    if loose_match:  # tier 3 although the owner set a reference
+        level = 0
     if degraded:  # a source failed this time
         level = max(level - 1, 0)
     return LEVELS[level]
@@ -1577,6 +1597,44 @@ def test_failed_source_lowers_confidence():
     assert value(SUB, comps).confidence == "high"
     assert value(SUB, comps, failed_sources=("chrono24",)).confidence == "medium"
     assert value(SUB, comps, estimated_reference=True).confidence == "medium"
+
+
+def test_best_offer_sales_do_not_drive_tier_selection():
+    t1 = [comp(10000.0, best_offer=True, dial="black") for _ in range(5)] + [comp(10000.0, dial="black")]
+    t2 = [comp(10000.0 + i, dial="white") for i in range(6)]
+    v = value(SUB, t1 + t2)
+    assert v.tier == 2 and v.n_ebay >= 6
+
+
+def test_adjusted_outlier_is_dropped_from_counts_and_stats():
+    comps = [comp(10000.0 + 10 * i) for i in range(8)] + [comp(30000.0)]
+    v = value(SUB, comps)
+    assert v.n_ebay == 8 and v.ebay_max == 10070.0
+
+
+def test_real_data_counts_match_stats(real_comps):
+    v = value(SUB, real_comps)
+    assert v.ebay_min <= v.ebay_median <= v.ebay_max and v.n_ebay == 24 and v.n_c24 == 11
+
+
+def test_chrono24_only_confidence_is_capped_at_medium():
+    v = value(SUB, [comp(10000.0 + i, source="chrono24") for i in range(12)])
+    assert v.confidence in ("low", "medium")
+
+
+def test_tier3_with_reference_is_low_confidence():
+    comps = [comp(10000.0 + i, title="Rolex Submariner Date 126610LN") for i in range(12)]
+    v = value(SUB, comps)
+    assert v is None or v.tier != 3 or v.confidence == "low"
+
+
+def test_fewer_than_three_comparables_returns_none():
+    assert value(SUB, [comp(10000.0), comp(10100.0)]) is None
+
+
+def test_estimate_rounds_half_up():
+    v = value(SUB, [comp(10005.0) for _ in range(6)])
+    assert v.estimate_usd == 10010.0
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1593,42 +1651,54 @@ from statistics import median
 from .adjust import adjust_price, learn_factors
 from .backtest import backtest
 from .blend import asking_gap, confidence, percentile, weights
-from .match import select_tier, trim_iqr
+from .match import iqr_mask, select_tier
 from .models import Comparable, Valuation, WatchQuery
 from .parse import is_junk
+
+MIN_COMPARABLES = 3
+
+
+def _kept(comps: list[Comparable], adjusted: list[float]) -> tuple[list[Comparable], list[float]]:
+    """Comparables whose adjusted price survives outlier trimming, with those adjusted prices."""
+    mask = iqr_mask(adjusted)
+    return [c for c, k in zip(comps, mask) if k], [a for a, k in zip(adjusted, mask) if k]
 
 
 def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool = False,
           failed_sources: tuple[str, ...] = ()) -> Valuation | None:
-    usable = [c for c in comps if c.price_usd > 0 and not is_junk(c.title, query.reference)]
+    # best-offer sales hide the real price: leave them out before tiers and factors see them
+    usable = [c for c in comps if c.price_usd > 0 and not c.best_offer and not is_junk(c.title, query.reference)]
     tier, chosen = select_tier(usable, query)
     if not chosen:
         return None
     factors = learn_factors(chosen)
-    ebay = [c for c in chosen if c.source == "ebay" and c.kind == "sold" and not c.best_offer]
-    c24 = [c for c in chosen if c.source == "chrono24"]
+    ebay_all = [c for c in chosen if c.source == "ebay" and c.kind == "sold"]
+    c24_all = [c for c in chosen if c.source == "chrono24"]
 
-    ebay_adj = trim_iqr([adjust_price(c, factors, query) for c in ebay])
-    c24_adj = trim_iqr([adjust_price(c, factors, query) for c in c24])
+    ebay, ebay_adj = _kept(ebay_all, [adjust_price(c, factors, query) for c in ebay_all])
+    c24, c24_adj = _kept(c24_all, [adjust_price(c, factors, query) for c in c24_all])
     gap = asking_gap([factors.to_baseline(c) for c in ebay], [factors.to_baseline(c) for c in c24])
     w_ebay, w_c24 = weights(len(ebay_adj), len(c24_adj))
     if w_ebay + w_c24 == 0:
         return None
     ebay_est = median(ebay_adj) if ebay_adj else 0.0
     c24_est = median(c24_adj) * (1 - gap) if c24_adj else 0.0
-    estimate = round((w_ebay * ebay_est + w_c24 * c24_est) / 10) * 10
+    estimate = int((w_ebay * ebay_est + w_c24 * c24_est) / 10 + 0.5) * 10
 
     combined = ebay_adj + [p * (1 - gap) for p in c24_adj]
+    if len(combined) < MIN_COMPARABLES:
+        return None
     mid = median(combined)
     spread = (percentile(combined, 90) - percentile(combined, 10)) / mid if mid else 1.0
     bt_n, bt_mdape, bt_within = backtest(ebay, factors)
 
-    ebay_raw = trim_iqr([c.price_usd for c in ebay])  # shown to the owner as-is, before adjustments
-    c24_raw = trim_iqr([c.price_usd for c in c24])
+    ebay_raw = [c.price_usd for c in ebay]  # shown to the owner as-is, before adjustments
+    c24_raw = [c.price_usd for c in c24]
     return Valuation(
         estimate_usd=float(estimate),
-        confidence=confidence(tier, len(combined), spread, bt_mdape, estimated_reference, bool(failed_sources)),
-        tier=tier, n_ebay=len(ebay_adj), n_c24=len(c24_adj),
+        confidence=confidence(tier, len(combined), spread, bt_mdape, estimated_reference, bool(failed_sources),
+                              sold_data=bool(ebay), loose_match=tier == 3 and bool(query.reference)),
+        tier=tier, n_ebay=len(ebay), n_c24=len(c24),
         ebay_median=median(ebay_raw) if ebay_raw else None,
         ebay_p10=percentile(ebay_raw, 10) if ebay_raw else None,
         ebay_p90=percentile(ebay_raw, 90) if ebay_raw else None,
@@ -1645,7 +1715,7 @@ def value(query: WatchQuery, comps: list[Comparable], estimated_reference: bool 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_engine.py -q`
-Expected: `6 passed`. If `test_real_submariner_data_gives_a_sensible_estimate` fails, print `value(SUB, real_comps)` and report the numbers. Don't loosen the assertion without the coordinator's approval: a failure here is real information about the engine.
+Expected: all pass. If `test_real_submariner_data_gives_a_sensible_estimate` fails, print `value(SUB, real_comps)` and report the numbers. Don't loosen the assertion without the coordinator's approval: a failure here is real information about the engine.
 
 - [ ] **Step 5: Commit**
 

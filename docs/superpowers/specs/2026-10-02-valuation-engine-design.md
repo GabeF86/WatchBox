@@ -143,7 +143,8 @@ Comparables are scored against the watch, using only the details the owner set:
 - The engine picks the **tightest tier with at least 5 comparables**, counting both sources together. If none reaches 5, it uses the tier with the most comparables and caps confidence at low.
 - Year: when the owner set a year, comparables within ±3 years are preferred. They're kept first, and listings without a year come next.
 - **Outlier trimming, per source:** comparables outside `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]` are dropped, computed after adjustment (section 5). With fewer than 4 comparables, nothing is trimmed.
-- eBay comparables with `best_offer=true` are **excluded** from the eBay figures, because the real sale price is unknown.
+- eBay comparables with `best_offer=true` are **excluded** before tier selection and factor learning, because the real sale price is unknown.
+- **One consistent sample.** Trimming (`iqr_mask`) runs on adjusted prices and decides which comparables are kept. `n_ebay` / `n_c24` and the displayed raw stats (median, P10, P90, min, max) all come from those same kept comparables, with no second trim.
 
 ## 5. Adjustments (`adjust.py`)
 
@@ -187,6 +188,9 @@ Every comparable is converted to a **baseline watch** (full set, excellent condi
   | **low** | everything else |
 
   Using a `price_reference` (estimating from another reference) caps confidence at medium.
+- **More caps.** With no eBay sold comparables (Chrono24 asking prices only), confidence is capped at medium. Tier 3 with an owner-set reference (a loose match) caps it at low.
+- **Minimum sample.** If fewer than 3 comparables survive trimming, there is no valuation (the service keeps the previous one).
+- The $10 rounding is half up.
 
 ## 7. Backtest (`backtest.py`)
 
@@ -194,6 +198,7 @@ A leave-one-out check on the watch's own eBay sold comparables at the chosen tie
 
 - For each sold comparable `i`, compute the eBay estimate using all the other comparables (same tier rule, adjustments and trimming), converted to comparable `i`'s own details. Then record the error `|predicted − actual| / actual`.
 - **Reported:** `n_tested`, the **median absolute percentage error** (MdAPE), and the share of predictions within ±10%.
+- Runs on the kept (post-trim) eBay comparables.
 - **Only run when** at least 6 sold comparables exist; otherwise it's reported as "not enough data".
 - **Used for:** the confidence rule (section 6), and as evidence for tuning the priors. The check script prints it for every watch.
 

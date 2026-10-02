@@ -65,3 +65,41 @@ def test_failed_source_lowers_confidence():
     assert value(SUB, comps).confidence == "high"
     assert value(SUB, comps, failed_sources=("chrono24",)).confidence == "medium"
     assert value(SUB, comps, estimated_reference=True).confidence == "medium"
+
+
+def test_best_offer_sales_do_not_drive_tier_selection():
+    t1 = [comp(10000.0, best_offer=True, dial="black") for _ in range(5)] + [comp(10000.0, dial="black")]
+    t2 = [comp(10000.0 + i, dial="white") for i in range(6)]
+    v = value(SUB, t1 + t2)
+    assert v.tier == 2 and v.n_ebay >= 6
+
+
+def test_adjusted_outlier_is_dropped_from_counts_and_stats():
+    comps = [comp(10000.0 + 10 * i) for i in range(8)] + [comp(30000.0)]
+    v = value(SUB, comps)
+    assert v.n_ebay == 8 and v.ebay_max == 10070.0
+
+
+def test_real_data_counts_match_stats(real_comps):
+    v = value(SUB, real_comps)
+    assert v.ebay_min <= v.ebay_median <= v.ebay_max and v.n_ebay == 24 and v.n_c24 == 11
+
+
+def test_chrono24_only_confidence_is_capped_at_medium():
+    v = value(SUB, [comp(10000.0 + i, source="chrono24") for i in range(12)])
+    assert v.confidence in ("low", "medium")
+
+
+def test_tier3_with_reference_is_low_confidence():
+    comps = [comp(10000.0 + i, title="Rolex Submariner Date 126610LN") for i in range(12)]
+    v = value(SUB, comps)
+    assert v is None or v.tier != 3 or v.confidence == "low"
+
+
+def test_fewer_than_three_comparables_returns_none():
+    assert value(SUB, [comp(10000.0), comp(10100.0)]) is None
+
+
+def test_estimate_rounds_half_up():
+    v = value(SUB, [comp(10005.0) for _ in range(6)])
+    assert v.estimate_usd == 10010.0
