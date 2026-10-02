@@ -1623,9 +1623,9 @@ def test_chrono24_only_confidence_is_capped_at_medium():
 
 
 def test_tier3_with_reference_is_low_confidence():
-    comps = [comp(10000.0 + i, title="Rolex Submariner Date 126610LN") for i in range(12)]
+    comps = [comp(11000.0 + i, title="Rolex Submariner Date 2015") for i in range(6)]
     v = value(SUB, comps)
-    assert v is None or v.tier != 3 or v.confidence == "low"
+    assert v.tier == 3 and v.confidence == "low"
 
 
 def test_fewer_than_three_comparables_returns_none():
