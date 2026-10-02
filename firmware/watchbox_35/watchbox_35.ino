@@ -1,6 +1,7 @@
 // WatchBox 3.5" firmware: slot map, watch detail, settings and hotspot setup on the ESP32-32E board.
 // Data comes from the Mac app's GET /api/box; the last good payload is cached so wake-up is instant.
 #include <WiFi.h>
+#include <driver/gpio.h>
 
 #include "board.h"
 #include "data.h"
@@ -27,6 +28,8 @@ int detailIndex = 0;
 String serverUrl, lastContent;  // lastContent: last payload without generated_at
 unsigned long lastFetch = 0, lastStatus = 0, screenSince = 0;
 bool fetchedThisBoot = false, needRedraw = true;
+bool wasConnected = false;      // Wi-Fi state at the last tryFetch(): fetch at once on reconnect
+bool drawnLowBattery = false;   // lowBattery as of the last full draw
 }  // namespace
 
 void refreshStatus() {
@@ -41,6 +44,7 @@ void refreshStatus() {
 void draw() {
   if (screen == Screen::Detail && !box.slots[detailIndex].present) screen = Screen::Home;  // left its slot
   refreshStatus();
+  drawnLowBattery = status.lowBattery;
   switch (screen) {
     case Screen::Home:
       if (box.valid) screens::home(box, status);
@@ -75,8 +79,9 @@ int nextWatch(int from, int step) {
 
 void handleTouch(const TouchEvent& ev) {
   if (ev.gesture == Gesture::None) return;
-  power::noteActivity();
+  bool wasDimmed = power::noteActivity();
   screenSince = millis();  // the detail timeout counts from the last touch
+  if (wasDimmed) return;   // the first touch on a dimmed screen only wakes it
   bool tap = ev.gesture == Gesture::Tap;
   switch (screen) {
     case Screen::Home:
@@ -123,8 +128,11 @@ void handleTouch(const TouchEvent& ev) {
 }
 
 void tryFetch() {
-  if (!net::connected()) return;
-  if (fetchedThisBoot && millis() - lastFetch < FETCH_INTERVAL) return;
+  bool up = net::connected();
+  bool reconnected = up && !wasConnected;
+  wasConnected = up;
+  if (!up) return;
+  if (fetchedThisBoot && !reconnected && millis() - lastFetch < FETCH_INTERVAL) return;
   lastFetch = millis();
   fetchedThisBoot = true;
   String json;
@@ -146,6 +154,7 @@ void tryFetch() {
 
 void setup() {
   Serial.begin(115200);
+  gpio_hold_dis(GPIO_NUM_27);  // released from the deep-sleep backlight hold
   tft.init();
   tft.setRotation(1);
   tft.setTouchCalibrate(TOUCH_CAL);
@@ -174,10 +183,9 @@ void loop() {
   if (screen == Screen::Detail && millis() - screenSince > DETAIL_TIMEOUT) show(Screen::Home);
   if (millis() - lastStatus > STATUS_INTERVAL) {
     lastStatus = millis();
-    if (screen == Screen::Home && box.valid && !needRedraw) {
-      refreshStatus();
-      screens::homeStatusBar(status);
-    }
+    refreshStatus();
+    if (status.lowBattery != drawnLowBattery) needRedraw = true;  // banner appears or goes
+    else if (screen == Screen::Home && box.valid && !needRedraw) screens::homeStatusBar(status);
   }
   if (power::update(status.batteryPct < 0) == power::Action::Sleep) power::sleepNow();
   if (needRedraw) draw();

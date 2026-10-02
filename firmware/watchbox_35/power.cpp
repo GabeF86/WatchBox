@@ -1,6 +1,7 @@
 #include "power.h"
 
 #include <WiFi.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
 
 #include "board.h"
@@ -11,6 +12,7 @@ const unsigned long DIM_AFTER_USB = 600000;      // 10 min
 const unsigned long SLEEP_AFTER_DIM = 15000;
 const uint8_t BRIGHT = 200, DIMMED = 30;
 const int BATTERY_PIN = 34;
+const int BACKLIGHT_PIN = 27;  // GPIO_NUM_27 in sleepNow() and setup()
 unsigned long lastActivity = 0;
 bool dimmed = false;
 }  // namespace
@@ -27,12 +29,12 @@ int power::batteryPct(int mv) {
 
 bool power::wokeFromTouch() { return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0; }
 
-void power::noteActivity() {
+bool power::noteActivity() {
   lastActivity = millis();
-  if (dimmed) {
-    dimmed = false;
-    tft.setBrightness(BRIGHT);
-  }
+  if (!dimmed) return false;
+  dimmed = false;
+  tft.setBrightness(BRIGHT);
+  return true;
 }
 
 power::Action power::update(bool usb) {
@@ -49,7 +51,11 @@ power::Action power::update(bool usb) {
 
 void power::sleepNow() {
   tft.setBrightness(0);
-  tft.sleep();
+  tft.sleep();  // also sets brightness 0 via the PWM, so the pin is taken over after it
+  pinMode(BACKLIGHT_PIN, OUTPUT);  // hold the backlight off: the PWM stops in deep sleep and the pin would float
+  digitalWrite(BACKLIGHT_PIN, LOW);
+  gpio_hold_en(GPIO_NUM_27);
+  gpio_deep_sleep_hold_en();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, 0);  // XPT2046 pen interrupt goes low on touch

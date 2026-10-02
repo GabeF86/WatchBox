@@ -182,7 +182,8 @@ void screens::detail(const BoxData& d, int index, const BoxStatus& s) {
   } else {
     column(cx + 2 * cw, cy, "Accuracy", "-", "not enough sales", "");
   }
-  text("Updated " + w.asOf + "  |  eBay + Chrono24", MARGIN + 4, H - 22, &fonts::FreeSans9pt7b, MUTED);
+  String footer = w.asOf.length() ? "Updated " + w.asOf + "  |  eBay + Chrono24" : String("eBay + Chrono24");
+  text(footer, MARGIN + 4, H - 22, &fonts::FreeSans9pt7b, MUTED);
 }
 
 void screens::settings(const BoxStatus& s, const String& server, int unslotted, const String& ssid, int rssi,
