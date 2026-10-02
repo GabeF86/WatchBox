@@ -11,6 +11,13 @@
 #include <ArduinoJson.h>
 #include "config.h"
 
+#ifndef COLOR_INVERT
+#define COLOR_INVERT false
+#endif
+#ifndef COLOR_BGR
+#define COLOR_BGR false
+#endif
+
 class LGFX : public lgfx::LGFX_Device {
   lgfx::Panel_ST7796 panel_;
   lgfx::Bus_SPI bus_;
@@ -23,7 +30,7 @@ class LGFX : public lgfx::LGFX_Device {
       auto cfg = bus_.config();
       cfg.spi_host = HSPI_HOST;
       cfg.spi_mode = 0;
-      cfg.freq_write = 40000000;
+      cfg.freq_write = 20000000;  // 40 MHz garbled colors on this panel
       cfg.freq_read = 16000000;
       cfg.spi_3wire = false;
       cfg.use_lock = true;
@@ -43,8 +50,8 @@ class LGFX : public lgfx::LGFX_Device {
       cfg.panel_width = 320;
       cfg.panel_height = 480;
       cfg.readable = true;
-      cfg.invert = false;
-      cfg.rgb_order = false;
+      cfg.invert = COLOR_INVERT;
+      cfg.rgb_order = COLOR_BGR;
       cfg.bus_shared = true;
       panel_.config(cfg);
     }
@@ -79,6 +86,10 @@ class LGFX : public lgfx::LGFX_Device {
 };
 
 LGFX tft;
+
+// Measured on the owner's board (BOOT-held calibration, 2026-10-02).
+uint16_t touchCal[8] = {378, 3815, 333, 301, 3689, 3781, 3687, 332};
+
 const int BOOT_KEY = 0;
 const uint32_t BG = TFT_BLACK;
 
@@ -90,17 +101,27 @@ void title(const char* text) {
   tft.print(text);
 }
 
-void colorTest() {
+void drawBars(int option) {
   const uint32_t colors[] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE};
   const char* names[] = {"RED", "GREEN", "BLUE", "WHITE"};
   int w = tft.width() / 4;
   for (int i = 0; i < 4; i++) {
     tft.fillRect(i * w, 0, w, tft.height(), colors[i]);
-    tft.setTextColor(i == 3 ? TFT_BLACK : TFT_WHITE);
+    tft.setTextColor(TFT_BLACK, colors[i]);
     tft.setFont(&fonts::FreeSansBold12pt7b);
     tft.setCursor(i * w + 12, tft.height() / 2);
     tft.print(names[i]);
   }
+  tft.fillRect(tft.width() / 2 - 40, 20, 80, 70, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setFont(&fonts::FreeSansBold24pt7b);
+  tft.setCursor(tft.width() / 2 - 14, 30);
+  tft.print(option);
+}
+
+void colorTest() {
+  Serial.printf("color test: invert=%d bgr=%d\n", (int)COLOR_INVERT, (int)COLOR_BGR);
+  drawBars(1 + (COLOR_INVERT ? 1 : 0) + (COLOR_BGR ? 2 : 0));
   delay(2500);
 }
 
@@ -197,8 +218,11 @@ void calibrate() {
 void setup() {
   Serial.begin(115200);
   pinMode(BOOT_KEY, INPUT_PULLUP);
+  Serial.println("init display");
   tft.init();
-  tft.setRotation(1);  // landscape, 480 x 320
+  Serial.println("display ok");
+  tft.setRotation(1);
+  tft.setTouchCalibrate(touchCal);  // landscape, 480 x 320
   tft.setBrightness(200);
   colorTest();
   if (connectWifi()) showWatches();
