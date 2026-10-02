@@ -19,10 +19,10 @@ def test_percentile_interpolates():
 
 
 def test_asking_gap():
-    assert asking_gap([100] * 5, [110] * 5) == pytest.approx(1 - 100 / 110)
+    assert asking_gap([100] * 5, [110] * 5) == pytest.approx((5 * (1 - 100 / 110) + 10 * 0.07) / 15)
     assert asking_gap([100] * 4, [110] * 5) == 0.07  # too little data
-    assert asking_gap([130] * 5, [100] * 5) == 0.0
-    assert asking_gap([50] * 5, [100] * 5) == 0.20
+    assert asking_gap([130] * 5, [100] * 5) == 0.0  # measured -0.3 shrinks to (5*-0.3+0.7)/15 < 0
+    assert asking_gap([50] * 5, [100] * 5) == 0.20  # (2.5+0.7)/15 = 0.2133, clamped
 
 
 def test_weights():

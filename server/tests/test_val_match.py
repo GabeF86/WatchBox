@@ -47,3 +47,12 @@ def test_prefer_year_keeps_close_years_when_enough():
 def test_trim_iqr():
     assert trim_iqr([10, 11, 12, 13, 100]) == [10, 11, 12, 13]
     assert trim_iqr([10, 100, 1000]) == [10, 100, 1000]
+
+
+def test_trim_iqr_has_minimum_width_so_ties_do_not_collapse():
+    assert len(trim_iqr([100] * 6 + [99, 101])) == 8
+    assert len(trim_iqr([11500] * 7 + [11000, 12000, 12400])) == 10
+
+
+def test_tier_3_is_superset_of_tier_2():
+    assert in_tier(comp("Rolex Submariner 116610LN"), Q, 3)  # no "Date", but the reference matches

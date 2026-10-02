@@ -46,9 +46,15 @@ def _measured(comps, attr, value, baseline, other_factor: Callable[[Comparable],
     return sum(r * k for r, k in ratios) / n, n
 
 
-def _shrink(measured: float, n: int, prior: float) -> float:
+def _shrink(measured: float, n: int, prior: float, lo: float | None = None, hi: float | None = None) -> float:
+    """Shrink toward the prior, stay within ±CLAMP of it and within the optional [lo, hi] bounds."""
     blended = (n * measured + SHRINK * prior) / (n + SHRINK)
-    return min(max(blended, prior - CLAMP), prior + CLAMP)
+    value = min(max(blended, prior - CLAMP), prior + CLAMP)
+    if lo is not None:
+        value = max(value, lo)
+    if hi is not None:
+        value = min(value, hi)
+    return value
 
 
 def learn_factors(comps: list[Comparable]) -> Factors:
@@ -59,7 +65,7 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "box_papers", value, "full_set", cond_prior)
         if m:
-            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value])
+            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value], hi=1.0)  # never beats a full set
             learned[f"box:{value}"] = m[0]
     box_learned = lambda c: box.get(c.box_papers, 1.0) if c.box_papers else 1.0
     for value in COND_PRIOR:
@@ -67,6 +73,8 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "condition", value, "excellent", box_learned)
         if m:
-            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value])
+            # "new" never ranks below excellent; every lower grade never ranks above it
+            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value], lo=1.0 if value == "new" else None,
+                                  hi=None if value == "new" else 1.0)
             learned[f"condition:{value}"] = m[0]
     return Factors(box, cond, learned)

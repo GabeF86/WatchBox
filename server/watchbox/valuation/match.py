@@ -1,11 +1,12 @@
 """Chooses which comparables describe the owner's watch closely enough, and trims outliers."""
-from statistics import quantiles
+from statistics import median, quantiles
 
 from .models import Comparable, WatchQuery
 from .parse import norm, reference_matches
 
 MIN_TIER_COUNT = 5
 YEAR_WINDOW = 3
+MIN_SPREAD = 0.06  # IQR floor, as a share of the median
 DETAIL_FIELDS = ("dial", "bracelet", "metal")
 
 
@@ -29,7 +30,7 @@ def in_tier(c: Comparable, q: WatchQuery, tier: int) -> bool:
         return _base_match(c, q) and _details_match(c, q)
     if tier == 2:
         return _base_match(c, q)
-    return _brand_model_match(c, q)
+    return _base_match(c, q) or _brand_model_match(c, q)
 
 
 def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:
@@ -55,6 +56,6 @@ def trim_iqr(values: list[float]) -> list[float]:
     if len(values) < 4:
         return list(values)
     q1, _, q3 = quantiles(values, n=4, method="inclusive")
-    spread = q3 - q1
+    spread = max(q3 - q1, MIN_SPREAD * median(values))  # tied prices must not collapse the sample
     low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
     return [v for v in values if low <= v <= high]

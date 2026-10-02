@@ -6,6 +6,7 @@ W_EBAY, W_C24 = 0.7, 0.3
 FULL_WEIGHT_N = 10  # a source gets its full weight from 10 comparables
 DEFAULT_GAP, MAX_GAP = 0.07, 0.20
 MIN_GAP_SAMPLES = 5
+GAP_SHRINK = 10
 LEVELS = ("low", "medium", "high")
 
 
@@ -20,7 +21,9 @@ def asking_gap(ebay_baseline: list[float], c24_baseline: list[float]) -> float:
     """How far Chrono24 asking prices sit above eBay sold prices for this watch (0-20%)."""
     if len(ebay_baseline) < MIN_GAP_SAMPLES or len(c24_baseline) < MIN_GAP_SAMPLES:
         return DEFAULT_GAP
-    gap = 1 - median(ebay_baseline) / median(c24_baseline)
+    measured = 1 - median(ebay_baseline) / median(c24_baseline)
+    n = min(len(ebay_baseline), len(c24_baseline))
+    gap = (n * measured + GAP_SHRINK * DEFAULT_GAP) / (n + GAP_SHRINK)  # few samples: stay near the default
     return min(max(gap, 0.0), MAX_GAP)
 
 

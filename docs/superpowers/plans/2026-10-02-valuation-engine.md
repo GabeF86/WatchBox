@@ -1076,6 +1076,15 @@ def test_prefer_year_keeps_close_years_when_enough():
 def test_trim_iqr():
     assert trim_iqr([10, 11, 12, 13, 100]) == [10, 11, 12, 13]
     assert trim_iqr([10, 100, 1000]) == [10, 100, 1000]
+
+
+def test_trim_iqr_has_minimum_width_so_ties_do_not_collapse():
+    assert len(trim_iqr([100] * 6 + [99, 101])) == 8
+    assert len(trim_iqr([11500] * 7 + [11000, 12000, 12400])) == 10
+
+
+def test_tier_3_is_superset_of_tier_2():
+    assert in_tier(comp("Rolex Submariner 116610LN"), Q, 3)  # no "Date", but the reference matches
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1087,13 +1096,14 @@ Expected: FAIL, `ModuleNotFoundError`
 
 ```python
 """Chooses which comparables describe the owner's watch closely enough, and trims outliers."""
-from statistics import quantiles
+from statistics import median, quantiles
 
 from .models import Comparable, WatchQuery
 from .parse import norm, reference_matches
 
 MIN_TIER_COUNT = 5
 YEAR_WINDOW = 3
+MIN_SPREAD = 0.06  # IQR floor, as a share of the median
 DETAIL_FIELDS = ("dial", "bracelet", "metal")
 
 
@@ -1117,7 +1127,7 @@ def in_tier(c: Comparable, q: WatchQuery, tier: int) -> bool:
         return _base_match(c, q) and _details_match(c, q)
     if tier == 2:
         return _base_match(c, q)
-    return _brand_model_match(c, q)
+    return _base_match(c, q) or _brand_model_match(c, q)
 
 
 def prefer_year(comps: list[Comparable], q: WatchQuery) -> list[Comparable]:
@@ -1143,7 +1153,7 @@ def trim_iqr(values: list[float]) -> list[float]:
     if len(values) < 4:
         return list(values)
     q1, _, q3 = quantiles(values, n=4, method="inclusive")
-    spread = q3 - q1
+    spread = max(q3 - q1, MIN_SPREAD * median(values))  # tied prices must not collapse the sample
     low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
     return [v for v in values if low <= v <= high]
 ```
@@ -1151,7 +1161,7 @@ def trim_iqr(values: list[float]) -> list[float]:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_match.py -q`
-Expected: `6 passed`
+Expected: `8 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1202,6 +1212,11 @@ def test_learned_factor_shrinks_toward_prior():
     f = learn_factors(comps)
     assert f.box["watch_only"] == pytest.approx((5 * 0.8 + 10 * 0.85) / 15)
     assert f.learned["box:watch_only"] == pytest.approx(0.8)
+
+
+def test_learned_factor_never_beats_the_better_level():
+    comps = [comp(10000.0, "full_set")] * 5 + [comp(12000.0, "papers_only")] * 5
+    assert learn_factors(comps).box["papers_only"] == 1.0  # shrunk 1.04 is capped at the baseline
 
 
 def test_learned_factor_is_clamped_and_needs_enough_data():
@@ -1267,9 +1282,15 @@ def _measured(comps, attr, value, baseline, other_factor: Callable[[Comparable],
     return sum(r * k for r, k in ratios) / n, n
 
 
-def _shrink(measured: float, n: int, prior: float) -> float:
+def _shrink(measured: float, n: int, prior: float, lo: float | None = None, hi: float | None = None) -> float:
+    """Shrink toward the prior, stay within ±CLAMP of it and within the optional [lo, hi] bounds."""
     blended = (n * measured + SHRINK * prior) / (n + SHRINK)
-    return min(max(blended, prior - CLAMP), prior + CLAMP)
+    value = min(max(blended, prior - CLAMP), prior + CLAMP)
+    if lo is not None:
+        value = max(value, lo)
+    if hi is not None:
+        value = min(value, hi)
+    return value
 
 
 def learn_factors(comps: list[Comparable]) -> Factors:
@@ -1280,7 +1301,7 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "box_papers", value, "full_set", cond_prior)
         if m:
-            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value])
+            box[value] = _shrink(m[0], m[1], BOX_PRIOR[value], hi=1.0)  # never beats a full set
             learned[f"box:{value}"] = m[0]
     box_learned = lambda c: box.get(c.box_papers, 1.0) if c.box_papers else 1.0
     for value in COND_PRIOR:
@@ -1288,7 +1309,9 @@ def learn_factors(comps: list[Comparable]) -> Factors:
             continue
         m = _measured(comps, "condition", value, "excellent", box_learned)
         if m:
-            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value])
+            # "new" never ranks below excellent; every lower grade never ranks above it
+            cond[value] = _shrink(m[0], m[1], COND_PRIOR[value], lo=1.0 if value == "new" else None,
+                                  hi=None if value == "new" else 1.0)
             learned[f"condition:{value}"] = m[0]
     return Factors(box, cond, learned)
 ```
@@ -1296,7 +1319,7 @@ def learn_factors(comps: list[Comparable]) -> Factors:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_adjust.py -q`
-Expected: `4 passed`
+Expected: `5 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -1338,10 +1361,10 @@ def test_percentile_interpolates():
 
 
 def test_asking_gap():
-    assert asking_gap([100] * 5, [110] * 5) == pytest.approx(1 - 100 / 110)
+    assert asking_gap([100] * 5, [110] * 5) == pytest.approx((5 * (1 - 100 / 110) + 10 * 0.07) / 15)
     assert asking_gap([100] * 4, [110] * 5) == 0.07  # too little data
-    assert asking_gap([130] * 5, [100] * 5) == 0.0
-    assert asking_gap([50] * 5, [100] * 5) == 0.20
+    assert asking_gap([130] * 5, [100] * 5) == 0.0  # measured -0.3 shrinks to (5*-0.3+0.7)/15 < 0
+    assert asking_gap([50] * 5, [100] * 5) == 0.20  # (2.5+0.7)/15 = 0.2133, clamped
 
 
 def test_weights():
@@ -1394,6 +1417,7 @@ W_EBAY, W_C24 = 0.7, 0.3
 FULL_WEIGHT_N = 10  # a source gets its full weight from 10 comparables
 DEFAULT_GAP, MAX_GAP = 0.07, 0.20
 MIN_GAP_SAMPLES = 5
+GAP_SHRINK = 10
 LEVELS = ("low", "medium", "high")
 
 
@@ -1408,7 +1432,9 @@ def asking_gap(ebay_baseline: list[float], c24_baseline: list[float]) -> float:
     """How far Chrono24 asking prices sit above eBay sold prices for this watch (0-20%)."""
     if len(ebay_baseline) < MIN_GAP_SAMPLES or len(c24_baseline) < MIN_GAP_SAMPLES:
         return DEFAULT_GAP
-    gap = 1 - median(ebay_baseline) / median(c24_baseline)
+    measured = 1 - median(ebay_baseline) / median(c24_baseline)
+    n = min(len(ebay_baseline), len(c24_baseline))
+    gap = (n * measured + GAP_SHRINK * DEFAULT_GAP) / (n + GAP_SHRINK)  # few samples: stay near the default
     return min(max(gap, 0.0), MAX_GAP)
 
 

@@ -30,6 +30,11 @@ def test_learned_factor_shrinks_toward_prior():
     assert f.learned["box:watch_only"] == pytest.approx(0.8)
 
 
+def test_learned_factor_never_beats_the_better_level():
+    comps = [comp(10000.0, "full_set")] * 5 + [comp(12000.0, "papers_only")] * 5
+    assert learn_factors(comps).box["papers_only"] == 1.0  # shrunk 1.04 is capped at the baseline
+
+
 def test_learned_factor_is_clamped_and_needs_enough_data():
     comps = [comp(10000.0, "full_set")] * 5 + [comp(5000.0, "watch_only")] * 5
     assert learn_factors(comps).box["watch_only"] == pytest.approx(0.75)  # prior 0.85 - 0.10

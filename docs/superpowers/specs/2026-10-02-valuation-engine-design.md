@@ -271,3 +271,9 @@ server/scripts/check_valuation.py   # full breakdown for one watch
 - The 116610LN estimate falls between the eBay sold median and the Chrono24 asking median seen on 2026-10-02 (about $11.5k–$12.3k), unless the owner's details justify otherwise.
 - Every valuation shows its breakdown and backtest on the web page.
 - Editing a watch's condition or box & papers changes its estimate immediately, with no Apify call.
+
+## Known limitations
+
+- Condition factors rarely learn from data: sources seldom label a listing "excellent", so there is usually no baseline group and the priors stay in force.
+- An unknown box & papers status is treated as a full set. Real data suggests unknown listings behave closer to 0.95.
+- Per-source pooling of learned factors weights each source by its group size only, not by how reliable the source is.
