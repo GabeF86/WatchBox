@@ -17,9 +17,10 @@ JUNK_PHRASES = (
 # Aftermarket gem work. Factory gem-set models are told apart by their reference suffix, so these phrases only
 # count when the watch being valued is not itself gem-set.
 GEM_PHRASES = ("diamond", "diamonds", "sapphires", "gem set")
-GEM_SET_SUFFIXES = ("rbr", "sabr", "saru", "rbow", "tbr", "sats", "sa")
+GEM_SET_RE = re.compile(r"\d(rbr|sabr|saru|rbow|tbr|sats|sa)(?![a-z])")  # tolerates "-0011" bracelet codes
 DEALER_WARRANTY_RE = re.compile(
-    r"(?<![a-z0-9])((\d+|one|two|three|five)[\s-]*(years?|yrs?|months?)|lifetime)\s+warranty(?![a-z0-9])")
+    r"(?<![a-z0-9])(((?!5[\s-]*(?:years?|yrs?))\d+|one|two|three)[\s-]*(years?|yrs?|months?)|lifetime)"
+    r"\s+warranty(?![a-z0-9])")  # not 5 years: that is Rolex's own warranty card
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
                     "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
@@ -44,7 +45,7 @@ def is_junk(title: str | None, reference: str | None = None) -> bool:
     t = (title or "").lower()
     if any(_has(t, p) for p in JUNK_PHRASES):
         return True
-    if norm(reference).endswith(GEM_SET_SUFFIXES):
+    if GEM_SET_RE.search(norm(reference)):
         return False
     return any(_has(t, p) for p in GEM_PHRASES)
 

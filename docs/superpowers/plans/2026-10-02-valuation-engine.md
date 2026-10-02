@@ -234,6 +234,8 @@ def test_is_junk(title, junk):
     ("Rolex Datejust 126284RBR diamond bezel", "126284RBR", False),
     ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", "116610LN", True),
     ("Rolex Datejust diamond dial", None, True),
+    ("Rolex 126284RBR diamond bezel", "126284RBR-0011", False),
+    ("Rolex Datejust 126284RBR box only", "126284RBR-0011", True),
     ("Rolex Datejust 126284RBR box only", "126284RBR", True),
     ("Rolex Datejust 126284RBR custom diamond bezel", "126284RBR", True),
 ])
@@ -291,6 +293,9 @@ def test_year_from_text(text, year):
     ("Rolex 116610LN warranty", "papers_only"),
     ("Rolex 116610LN 1 year warranty", None),
     ("Rolex 116610LN 2 yr warranty", None),
+    ("Rolex 116610LN 5 year warranty 2020", "papers_only"),
+    ("Rolex 116610LN 15 year warranty", None),
+    ("Rolex 116610LN 5 month warranty", None),
     ("Rolex 116610LN 12 month warranty", None),
     ("Rolex 116610LN lifetime warranty", None),
     ("Rolex 116610LN pay by credit card or debit card", None),
@@ -433,9 +438,10 @@ JUNK_PHRASES = (
 # Aftermarket gem work. Factory gem-set models are told apart by their reference suffix, so these phrases only
 # count when the watch being valued is not itself gem-set.
 GEM_PHRASES = ("diamond", "diamonds", "sapphires", "gem set")
-GEM_SET_SUFFIXES = ("rbr", "sabr", "saru", "rbow", "tbr", "sats", "sa")
+GEM_SET_RE = re.compile(r"\d(rbr|sabr|saru|rbow|tbr|sats|sa)(?![a-z])")  # tolerates "-0011" bracelet codes
 DEALER_WARRANTY_RE = re.compile(
-    r"(?<![a-z0-9])((\d+|one|two|three|five)[\s-]*(years?|yrs?|months?)|lifetime)\s+warranty(?![a-z0-9])")
+    r"(?<![a-z0-9])(((?!5[\s-]*(?:years?|yrs?))\d+|one|two|three)[\s-]*(years?|yrs?|months?)|lifetime)"
+    r"\s+warranty(?![a-z0-9])")  # not 5 years: that is Rolex's own warranty card
 FULL_SET_PHRASES = ("b&p", "b & p", "box and papers", "box & papers", "box/papers", "box papers",
                     "full set", "complete set", "box paper", "box & paper", "b+p")
 YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)")
@@ -460,7 +466,7 @@ def is_junk(title: str | None, reference: str | None = None) -> bool:
     t = (title or "").lower()
     if any(_has(t, p) for p in JUNK_PHRASES):
         return True
-    if norm(reference).endswith(GEM_SET_SUFFIXES):
+    if GEM_SET_RE.search(norm(reference)):
         return False
     return any(_has(t, p) for p in GEM_PHRASES)
 
@@ -670,7 +676,7 @@ def metal_from_c24(text: str | None) -> str | None:
 - [ ] **Step 4: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests/test_val_parse.py -q`
-Expected: `97 passed` (counting each parametrized case).
+Expected: `102 passed` (counting each parametrized case).
 
 - [ ] **Step 5: Commit**
 

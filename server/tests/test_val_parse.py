@@ -31,6 +31,8 @@ def test_is_junk(title, junk):
     ("Rolex Datejust 126284RBR diamond bezel", "126284RBR", False),
     ("Rolex Submariner 116610LN Steel 116659SABR Natural Diamonds Sapphires", "116610LN", True),
     ("Rolex Datejust diamond dial", None, True),
+    ("Rolex 126284RBR diamond bezel", "126284RBR-0011", False),
+    ("Rolex Datejust 126284RBR box only", "126284RBR-0011", True),
     ("Rolex Datejust 126284RBR box only", "126284RBR", True),
     ("Rolex Datejust 126284RBR custom diamond bezel", "126284RBR", True),
 ])
@@ -88,6 +90,9 @@ def test_year_from_text(text, year):
     ("Rolex 116610LN warranty", "papers_only"),
     ("Rolex 116610LN 1 year warranty", None),
     ("Rolex 116610LN 2 yr warranty", None),
+    ("Rolex 116610LN 5 year warranty 2020", "papers_only"),
+    ("Rolex 116610LN 15 year warranty", None),
+    ("Rolex 116610LN 5 month warranty", None),
     ("Rolex 116610LN 12 month warranty", None),
     ("Rolex 116610LN lifetime warranty", None),
     ("Rolex 116610LN pay by credit card or debit card", None),
