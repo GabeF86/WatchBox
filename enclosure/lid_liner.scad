@@ -26,7 +26,8 @@ board         = [101.5, 55.5];
 hole_sp       = [93.3, 49.0];  // long side measured 93.29 mm c-c on the board; short side still estimated
 glass_stack   = 4.2;           // PCB front face to touch-glass front face (module 5.8 total - 1.6 PCB)
 glass_offset  = [0.7, 0];      // touch-glass centre relative to board centre (ESTIMATED; check with coupon)
-window        = [77.24 + 0.6, 49.5 + 0.6];  // touch visual area + margin, so the full touch area works
+dead_strip    = 2.85;          // measured: black non-display border on the right edge of the glass (as viewed)
+window        = [77.24 + 0.6 - dead_strip, 49.5 + 0.6];  // touch area + margin, minus the dead strip
 board_pos     = [0, 0];        // board centre on the liner (liner centre = lid centre)
 post_d        = 6;
 screw_pilot   = 2.5;           // M3 self-tapping (2.2 for M2.5)
@@ -55,6 +56,7 @@ plate_h = open_h - 2 * fit_clearance;
 plate_r = open_r - fit_clearance;
 leg_h   = liner_back_z - lid_floor_z - 0.2;   // 0.2 for tape squish
 glass_c = board_pos + glass_offset;
+win_c   = glass_c + [dead_strip / 2, 0];   // viewer's right is -x (front face is z = 0), so trim that edge
 
 module rounded_rect(w, h, r, t) {
   hull() for (x = [-w / 2 + r, w / 2 - r], y = [-h / 2 + r, h / 2 - r]) translate([x, y, 0]) cylinder(r = r, h = t);
@@ -62,11 +64,11 @@ module rounded_rect(w, h, r, t) {
 
 module window_cut(t) {
   // straight cut, plus a 45° chamfer opening toward the front face (z = 0, the print bed side)
-  translate([glass_c.x - window.x / 2, glass_c.y - window.y / 2, -1]) cube([window.x, window.y, t + 2]);
+  translate([win_c.x - window.x / 2, win_c.y - window.y / 2, -1]) cube([window.x, window.y, t + 2]);
   hull() {
-    translate([glass_c.x - window.x / 2 - window_bevel, glass_c.y - window.y / 2 - window_bevel, -0.01])
+    translate([win_c.x - window.x / 2 - window_bevel, win_c.y - window.y / 2 - window_bevel, -0.01])
       cube([window.x + 2 * window_bevel, window.y + 2 * window_bevel, 0.01]);
-    translate([glass_c.x - window.x / 2, glass_c.y - window.y / 2, window_bevel]) cube([window.x, window.y, 0.01]);
+    translate([win_c.x - window.x / 2, win_c.y - window.y / 2, window_bevel]) cube([window.x, window.y, 0.01]);
   }
 }
 
