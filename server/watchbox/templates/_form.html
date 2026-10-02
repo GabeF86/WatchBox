@@ -1,7 +1,34 @@
 <form method="post" action="{{ action }}" class="watch-form">
   <label>Brand <input name="brand" required value="{{ fw.brand if fw else '' }}" placeholder="Rolex"></label>
   <label>Model <input name="model" required value="{{ fw.model if fw else '' }}" placeholder="Submariner Date"></label>
-  <label>Reference number <input name="reference" required value="{{ fw.reference if fw else '' }}" placeholder="126610LN"></label>
+  <label>Reference number (optional, best if you have it)
+    <input name="reference" value="{{ fw.reference if fw else '' }}" placeholder="116610LN"></label>
+  <label>Year (optional) <input name="year" inputmode="numeric" value="{{ fw.year if fw and fw.year else '' }}" placeholder="2015"></label>
+  <label>Condition
+    <select name="condition">
+      {% for c in conditions %}<option value="{{ c }}" {% if (fw.condition if fw else 'excellent') == c %}selected{% endif %}>{{ label(c) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Box &amp; papers
+    <select name="box_papers">
+      {% for b in box_papers_options %}<option value="{{ b }}" {% if (fw.box_papers if fw else 'full_set') == b %}selected{% endif %}>{{ label(b) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Dial color (optional)
+    <select name="dial"><option value="">Not set</option>
+      {% for d in dials %}<option value="{{ d }}" {% if fw and fw.dial == d %}selected{% endif %}>{{ label(d) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Bracelet (optional)
+    <select name="bracelet"><option value="">Not set</option>
+      {% for b in bracelets %}<option value="{{ b }}" {% if fw and fw.bracelet == b %}selected{% endif %}>{{ label(b) }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Case metal (optional)
+    <select name="metal"><option value="">Not set</option>
+      {% for m in metals %}<option value="{{ m }}" {% if fw and fw.metal == m %}selected{% endif %}>{{ label(m) }}</option>{% endfor %}
+    </select>
+  </label>
   <label>Slot
     <select name="slot">
       <option value="">No slot</option>

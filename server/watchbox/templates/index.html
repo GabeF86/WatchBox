@@ -19,6 +19,17 @@
         <span class="muted">no price yet</span>
       {% endif %}
     </div>
+    {% set v = valuations.get(w.id) %}
+    {% if v %}
+    <div class="breakdown">
+      <span class="badge {{ v.confidence }}">{{ v.confidence }} confidence</span>
+      {% if v.n_ebay and v.ebay_median is not none %}<div>eBay sold (90 days, all conditions &amp; box contents): {{ v.n_ebay }} sales · median {{ format_price(v.ebay_median) }} · typical {{ format_price(v.ebay_p10) }}–{{ format_price(v.ebay_p90) }} (low {{ format_price(v.ebay_min) }}, high {{ format_price(v.ebay_max) }})</div>{% else %}<div>eBay sold: not enough sales</div>{% endif %}
+      {% if v.n_c24 and v.c24_median is not none %}<div>Chrono24 asking: {{ v.n_c24 }} listings · median {{ format_price(v.c24_median) }}</div>{% else %}<div>Chrono24: no listings</div>{% endif %}
+      <div class="muted">Estimate adjusted for your watch's condition and box &amp; papers.</div>
+      <div>{% if v.backtest_mdape is not none %}Backtest: typically within ±{{ (v.backtest_mdape * 100) | round(1) }}% of real sales ({{ v.backtest_n }} tested){% else %}Backtest: not enough sales yet{% endif %}</div>
+      <div class="muted">Match tier {{ v.tier }}{% if v.failed_sources %} · unavailable this time: {{ v.failed_sources | join(", ") }}{% endif %} · {{ v.as_of[:10] }}</div>
+    </div>
+    {% endif %}
     <a href="/watches/{{ w.id }}/edit">Edit</a>
   </article>
   {% else %}

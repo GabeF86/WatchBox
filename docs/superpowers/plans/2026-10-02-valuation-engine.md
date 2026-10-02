@@ -2622,8 +2622,13 @@ def service():
 
 
 @pytest.fixture
-def client(tmp_path, service):
-    settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path=str(tmp_path / "t.db"))
+def db_path(tmp_path):
+    return str(tmp_path / "t.db")
+
+
+@pytest.fixture
+def client(db_path, service):
+    settings = Settings(ebay_client_id="", ebay_client_secret="", refresh_hours=24, db_path=db_path)
     with TestClient(create_app(settings, service, run_scheduler=False)) as c:
         yield c
 
@@ -2660,10 +2665,29 @@ def test_breakdown_is_shown_on_the_index(client):
     post(client, "/watches")
     page = client.get("/").text
     assert "$11,500" in page
-    assert "eBay sold (90 days): 20 sales" in page
+    assert "eBay sold (90 days" in page and "20 sales" in page
+    assert "typical $10,500–$12,900 (low $9,800, high $13,300)" in page
+    assert "adjusted for your watch's condition and box &amp; papers" in page
     assert "Chrono24 asking: 8 listings" in page
     assert "within ±4.2%" in page
     assert "medium confidence" in page
+
+
+def test_breakdown_handles_missing_source_stats(client, db_path):
+    post(client, "/watches")
+    conn = db.connect(db_path)
+    try:
+        db.add_valuation(conn, 1, Valuation(
+            estimate_usd=12000.0, confidence="low", tier=2, n_ebay=0, n_c24=0, ebay_median=None, ebay_p10=None,
+            ebay_p90=None, ebay_min=None, ebay_max=None, c24_median=None, gap=0.0, w_ebay=0.0, w_c24=1.0,
+            backtest_n=0, backtest_mdape=None, backtest_within10=None, factors={}))
+    finally:
+        conn.close()
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "eBay sold: not enough sales" in r.text
+    assert "Chrono24: no listings" in r.text
+    assert "Backtest: not enough sales yet" in r.text
 
 
 def test_detail_edit_recomputes_without_refetching(client, service):
@@ -2873,8 +2897,9 @@ Immediately before the line `    <a href="/watches/{{ w.id }}/edit">Edit</a>`, i
     {% if v %}
     <div class="breakdown">
       <span class="badge {{ v.confidence }}">{{ v.confidence }} confidence</span>
-      {% if v.n_ebay %}<div>eBay sold (90 days): {{ v.n_ebay }} sales · median {{ format_price(v.ebay_median) }} · typical {{ format_price(v.ebay_p10) }}–{{ format_price(v.ebay_p90) }} (low {{ format_price(v.ebay_min) }}, high {{ format_price(v.ebay_max) }})</div>{% endif %}
-      {% if v.n_c24 %}<div>Chrono24 asking: {{ v.n_c24 }} listings · median {{ format_price(v.c24_median) }}</div>{% endif %}
+      {% if v.n_ebay and v.ebay_median is not none %}<div>eBay sold (90 days, all conditions &amp; box contents): {{ v.n_ebay }} sales · median {{ format_price(v.ebay_median) }} · typical {{ format_price(v.ebay_p10) }}–{{ format_price(v.ebay_p90) }} (low {{ format_price(v.ebay_min) }}, high {{ format_price(v.ebay_max) }})</div>{% else %}<div>eBay sold: not enough sales</div>{% endif %}
+      {% if v.n_c24 and v.c24_median is not none %}<div>Chrono24 asking: {{ v.n_c24 }} listings · median {{ format_price(v.c24_median) }}</div>{% else %}<div>Chrono24: no listings</div>{% endif %}
+      <div class="muted">Estimate adjusted for your watch's condition and box &amp; papers.</div>
       <div>{% if v.backtest_mdape is not none %}Backtest: typically within ±{{ (v.backtest_mdape * 100) | round(1) }}% of real sales ({{ v.backtest_n }} tested){% else %}Backtest: not enough sales yet{% endif %}</div>
       <div class="muted">Match tier {{ v.tier }}{% if v.failed_sources %} · unavailable this time: {{ v.failed_sources | join(", ") }}{% endif %} · {{ v.as_of[:10] }}</div>
     </div>
@@ -2892,7 +2917,7 @@ In `server/watchbox/templates/base.html`, add these CSS rules just before `</sty
 - [ ] **Step 7: Run to verify pass**
 
 Run: `server/.venv/bin/pytest server/tests -q`
-Expected: all pass, including the 9 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
+Expected: all pass, including the 10 cases in `test_app_valuation.py` (counting parametrized cases) and the new display test.
 
 - [ ] **Step 8: Commit**
 
