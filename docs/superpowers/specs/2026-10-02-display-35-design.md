@@ -50,7 +50,7 @@ The response contains structured data for the 3.5" box. `/api/display` stays unc
   "slots": [
     {"slot": 1, "watch": {
       "id": 1, "name": "Portugieser", "brand": "IWC", "model": "Portugieser Chronograph",
-      "reference": "IW371615", "details": "Full set · Excellent",
+      "reference": "IW371615", "details": "Full set, Excellent",
       "estimate_usd": 6940, "estimated_reference": false, "confidence": "medium",
       "ebay": {"n": 0, "median": null, "p10": null, "p90": null},
       "chrono24": {"n": 37, "median": 6308},
@@ -64,7 +64,7 @@ The response contains structured data for the 3.5" box. `/api/display` stays unc
 
 - **`slots`** always has exactly 8 entries, ordered 1–8. An empty slot has `"watch": null`. Watches without a slot go in `unslotted`, using the same object shape.
 - **`name`** is the nickname if set, otherwise the model, as plain text.
-- **`details`** is "<box & papers label> · <condition label>", built with the existing `valuation.models.label()`.
+- **`details`** is "<box & papers label>, <condition label>", built with the existing `valuation.models.label()`.
 - **`reference`** is the watch's own reference. `estimated_reference` is true when `price_reference` is set; the box then prefixes the price with "~".
 - **Valuation fields** come from the latest valuation (`db.latest_valuations`). A watch with no valuation, but a v0 price (TheWatchAPI or eBay Browse), reports that price with `confidence: null` and empty eBay, Chrono24 and accuracy blocks. A watch with no price at all has `estimate_usd: null`.
 - **`total_usd`** sums the estimates that are present, and **`priced`** counts them. All money values are whole-dollar integers, so the firmware doesn't format decimals.
@@ -223,3 +223,16 @@ Fonts are LovyanGFX FreeSans and FreeSansBold at 9/12/18/24 pt.
 - **Battery calibration:** the divider ratio is assumed and must be checked once.
 - **Lid detection:** with no lid switch, the box sleeps on inactivity and not when the lid closes.
 - **"watchbox.local" default:** the default app address assumes the Mac app is reachable by that name. Until mDNS is added to the server, the owner enters the Mac's IP address on the setup page.
+
+## Implementation notes (2026-10-02)
+
+These refinements came out of the implementation plan (`docs/superpowers/plans/2026-10-02-display-35.md`):
+
+- **Time labels:** the payload adds `updated_label` (top level, the newest valuation time) and `as_of_label` (per watch). Both are local-time strings such as `"Oct 2, 1:14 PM"`, so the box needs no clock.
+- **ASCII strings:** every string sent to the box is ASCII-folded (Glashütte → Glashutte), because the GFX fonts are ASCII-only.
+- **Short `details` labels:** for example "Full set, Excellent".
+- **ASCII stand-ins on screen:** "< Back" for "‹ Back", a three-line menu icon for ⚙, "+/-" for ±, and "-" for "·" and "—". The detail column labels are "eBay sold - 90 d", "Chrono24 asking" and "Accuracy".
+- **Tile names** use 9 pt, so about 12 characters fit per line.
+- **Waking from sleep always shows the home screen;** the screen state is not saved.
+- **Offline banner** reads "Can't reach the app - values from <time>" so it fits the 480 px width.
+- **Change detection:** the box ignores `generated_at` when deciding whether the data changed, so it only redraws and rewrites the NVS cache when the content differs.
